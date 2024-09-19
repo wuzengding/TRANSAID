@@ -20,7 +20,7 @@ def parse_fasta(fasta_file):
     sequences = {}
     accession_NM, accession_XM = 0, 0
     for record in SeqIO.parse(fasta_file, "fasta"):
-        if record.id.split("_")[0] == "NM":
+        if record.id.split("_")[0] == "XM":
             sequences[record.id.split('.')[0]] = str(record.seq)
             accession_NM += 1
     print(f'accession_NM number is: {accession_NM}')
@@ -34,6 +34,82 @@ def parse_gbff(gbff_file):
             if feature.type == "CDS":
                 cds_annotations[record.id.split('.')[0]] = (int(feature.location.start), int(feature.location.end))
     return cds_annotations
+
+# 计算UTR区域
+def get_utr_regions(cds_start, cds_end, seq_length):
+    utr_regions = {}
+    if cds_start > 1:
+        utr_regions['5'] = (0, cds_start - 1)  # Adjusted for zero-based indexing
+    if cds_end < seq_length:
+        utr_regions['3'] = (cds_end, seq_length - 1)
+    return utr_regions
+
+# Shuffle UTR regions based on the determined UTR regions from CDS
+def shuffle_utr(seq, cds_start, cds_end, utr_type='both'):
+    seq_list = list(seq)
+    seq_length = len(seq)
+    utr_regions = get_utr_regions(cds_start, cds_end, seq_length)
+
+    if utr_type in ['5', 'both'] and '5' in utr_regions:
+        five_utr_start, five_utr_end = utr_regions['5']
+        shuffled_five_utr = random.sample(seq_list[five_utr_start:five_utr_end + 1], five_utr_end - five_utr_start + 1)
+        seq_list[five_utr_start:five_utr_end + 1] = shuffled_five_utr
+
+    if utr_type in ['3', 'both'] and '3' in utr_regions:
+        three_utr_start, three_utr_end = utr_regions['3']
+        shuffled_three_utr = random.sample(seq_list[three_utr_start:three_utr_end + 1], three_utr_end - three_utr_start + 1)
+        seq_list[three_utr_start:three_utr_end + 1] = shuffled_three_utr
+
+    return ''.join(seq_list)
+
+
+# Function to delete bases in the CDS region
+def delete_bases_in_cds(seq, cds_start, cds_end, delete_bases):
+    """
+    Deletes a given number of bases randomly from the CDS region.
+    Adjusts the CDS end position accordingly.
+    """
+    #print(f"delete_bases number is : {delete_bases}")
+    seq_list = list(seq)
+    cds_length = cds_end - cds_start + 1
+
+    # Ensure we don't delete more bases than available in the CDS
+    if delete_bases >= cds_length:
+        raise ValueError(f"Cannot delete {delete_bases} bases; CDS length is only {cds_length}.")
+
+    # Randomly select positions within the CDS to delete bases
+    deletion_start = random.randint(cds_start+ 4, cds_end  -4 - delete_bases)
+
+    del seq_list[deletion_start:deletion_start + delete_bases]
+
+    # Adjust the CDS end position
+    adjusted_cds_end = cds_end - delete_bases
+
+    return ''.join(seq_list), (cds_start, adjusted_cds_end)
+
+# Function to insert a random base sequence into the CDS region
+def insert_bases_in_cds(seq, cds_start, cds_end, insert_length):
+    """
+    Inserts a random sequence of a given length into the CDS region.
+    Adjusts the CDS end position accordingly.
+    """
+    seq_list = list(seq)
+    
+    # Generate a random sequence of the given length
+    bases = ['A', 'C', 'G', 'T']
+    insert_seq = ''.join(random.choices(bases, k=insert_length))
+    
+    # Randomly select a position within the CDS to insert the sequence
+    insertion_position = random.randint(cds_start + 4, cds_end - 4)
+    
+    # Insert the sequence
+    seq_list = seq_list[:insertion_position] + list(insert_seq) + seq_list[insertion_position:]
+    
+    # Adjust the CDS end position
+    adjusted_cds_end = cds_end + insert_length
+    
+    return ''.join(seq_list), (cds_start, adjusted_cds_end)
+
 
 # one-hot编码
 def one_hot_encode(seq, max_len):
@@ -132,6 +208,7 @@ def main(args):
     
     print(f'Set max_len to {max_len}.')
 
+    '''
     # 绘制长度分布
     plt.hist(lengths, bins=50)
     plt.axvline(x=np.percentile(lengths, 75), color='r', linestyle='--')
@@ -139,7 +216,8 @@ def main(args):
     plt.ylabel('Frequency')
     plt.xlim(0, 40000)
     plt.title('Distribution of mRNA Sequence Lengths')
-    plt.savefig(os.path.join(args.output_dir, 'Distribution_of_mRNA_Sequence_Lengths.pdf'))
+    plt.savefig(os.path.join(args.output_dir,   'Distribution_of_mRNA_Sequence_Lengths.pdf'))
+    '''
 
     # 准备训练和验证数据
     encoded_data = {}
@@ -149,6 +227,18 @@ def main(args):
             continue  # Skip sequences longer than the cutoff
         if seq_id in cds_annotations:
             cds_regions = cds_annotations[seq_id]
+
+            # Shuffle UTRs if specified
+            if args.utr_shuffle != 'none':
+                sequence = shuffle_utr(sequence, cds_regions[0], cds_regions[1], args.utr_shuffle)
+            
+            # Apply deletion mutation if specified
+            if args.delete_bases > 0:
+                sequence, cds_regions = delete_bases_in_cds(sequence, cds_regions[0], cds_regions[1], args.delete_bases)
+
+            # Apply insertion mutation if specified
+            if args.insert_bases > 0:
+                sequence, cds_regions = insert_bases_in_cds(sequence, cds_regions[0], cds_regions[1], args.insert_bases)
 
             if args.encoding_type == 'one_hot':
                 encoded_sequence = one_hot_encode(sequence, max_len)
@@ -195,6 +285,9 @@ if __name__ == "__main__":
     parser.add_argument('--max_len', type=float, required=True, help='Absolute length value or a decimal (0-1) indicating percentile')
     parser.add_argument('--train_ratio', type=float, required=True, help='Ratio of training data (e.g., 0.83 for a 5:1 train:validation split)')
     parser.add_argument('--gpu', type=int, required=True, choices=[0, 1], help='GPU device to use: 0 or 1')
+    parser.add_argument('--utr_shuffle', type=str, choices=['5', '3', 'both', 'none'], default='none', help="Shuffle UTR sequences: '5' for 5' UTR, '3' for 3' UTR, 'both' for both, or 'none'")
+    parser.add_argument('--delete_bases', type=int, default=0, help="Number of bases to delete in the CDS region")
+    parser.add_argument('--insert_bases', type=int, default=0, help="Number of random bases to insert in the CDS region")
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
 
     args = parser.parse_args()

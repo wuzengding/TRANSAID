@@ -56,9 +56,9 @@ class mRNADataset(Dataset):
             return x, y, seq_id, true_seq_len
 
 
-class TranslationAI_v3(nn.Module):
+class TRANSAID_v3(nn.Module):
     def __init__(self, input_channels=4, output_channels=3):
-        super(TranslationAI_v3, self).__init__()
+        super(TRANSAID_v3, self).__init__()
         
         self.conv1 = nn.Conv1d(input_channels, 32, kernel_size=3, padding='same')
         self.bn1 = nn.BatchNorm1d(32)
@@ -119,9 +119,9 @@ class ResidualBlock_v2(nn.Module):
         out = self.conv2(out)
         return out + residual
 
-class TranslationAI_v2(nn.Module):
+class TRANSAID_v2(nn.Module):
     def __init__(self, input_channels=4, output_channels=3):
-        super(TranslationAI_v2, self).__init__()
+        super(TRANSAID_v2, self).__init__()
         
         self.conv1 = nn.Conv1d(input_channels, 32, kernel_size=1, padding='same')
         
@@ -180,10 +180,10 @@ class ResidualBlock(nn.Module):
         out = self.relu(out)
         return out
 
-# TranslationAI模型
-class TranslationAI(nn.Module):
+# TRANSAID模型
+class TRANSAID(nn.Module):
     def __init__(self, input_channels=4, output_channels=3):
-        super(TranslationAI, self).__init__()
+        super(TRANSAID, self).__init__()
         
         self.conv1 = nn.Conv1d(input_channels, 32, kernel_size=3, padding=1)
         self.bn1 = nn.BatchNorm1d(32)
@@ -384,7 +384,7 @@ def plot_metrics_matrix(precision, recall, f1, precision_macro, recall_macro, f1
         for j in range(metrics_matrix.shape[1]):
             plt.text(j, i, format(metrics_matrix[i, j], '.4f'),
                      ha="center", va="center",
-                     color="white" if metrics_matrix[i, j] > metrics_matrix.max() / 2 else "black")
+                     color="white" if metrics_matrix[i, j] > metrics_matrix.max() / 1.2 else "black")
 
     #plt.tight_layout(rect=[0, 0.1, 0.8, 0.8])  # Adjust layout to fit the formula below
     plt.subplots_adjust(bottom=0.3)  # 调整图表底部间距以显示备注
@@ -405,10 +405,10 @@ def plot_metrics_matrix(precision, recall, f1, precision_macro, recall_macro, f1
 # Classify Transcript Predictions
 def classify_transcript_predictions(true_labels, predictions, seq_ids, seq_lengths):
     results = {
-        'Right ORF with All Correct': 0,
-        'Right ORF with base inCorrect partially': 0,
-        'Wrong ORF but with right TIS': 0,
-        'Wrong ORF but with right TTS':0,
+        'Right ORF with all base correct': 0,
+        'Right ORF with base incorrect partially': 0,
+        'Wrong ORF but with right TIS':0,
+        'Wrong ORF but with right TTS': 0,
         'Other Errors': 0
     }
     total_transcripts = len(seq_ids)
@@ -443,12 +443,12 @@ def classify_transcript_predictions(true_labels, predictions, seq_ids, seq_lengt
         partially_correct = (partial_tis and partial_tts) and nontistts_correct
 
         if all_correct:
-            results['Right ORF with All base correct'] += 1
+            results['Right ORF with all base correct'] += 1
         elif partially_correct:
             results['Right ORF with base incorrect partially'] += 1
-        elif not tis_correct and tts_correct:
-            results['Wrong ORF but with right TIS'] += 1
         elif tis_correct and not tts_correct:
+            results['Wrong ORF but with right TIS'] += 1
+        elif not tis_correct and tts_correct:
             results['Wrong ORF but with right TTS'] += 1
         else:
             results['Other Errors'] += 1
@@ -505,12 +505,12 @@ def main(args):
         model = SimpleRNN(input_size=4, hidden_size=32, output_size=3).to(device)
     elif args.model_type == 'TransformerModel':
         model = TransformerModel(input_dim=5, num_classes=3, max_len=max_len).to(device)
-    elif args.model_type == 'TranslationAI':
-        model = TranslationAI().to(device)
-    elif args.model_type == 'TranslationAI_v2':
-        model = TranslationAI_v2().to(device)
-    elif args.model_type == 'TranslationAI_v3':
-        model = TranslationAI_v3().to(device)
+    elif args.model_type == 'TRANSAID_v1':
+        model = TRANSAID().to(device)
+    elif args.model_type == 'TRANSAID_v2':
+        model = TRANSAID_v2().to(device)
+    elif args.model_type == 'TRANSAID_v3':
+        model = TRANSAID_v3().to(device)
     else:
         raise ValueError("Unsupported model type.")
     
@@ -549,10 +549,10 @@ def main(args):
     #plot_roc_curve(y_true_binary, y_scores, args.output_dir, args.prefix)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Run predictions using TranslationAI-2k model')
+    parser = argparse.ArgumentParser(description='Run predictions using TRANSAID-2k model')
     parser.add_argument('--data_dir', type=str, required=True, help='Directory containing encoded data')
     parser.add_argument('--model_path', type=str, required=True, help='Path to the trained model')
-    parser.add_argument('-t','--model_type', type=str, required=True, help='Model type: SimpleLSTM, LSTMWithAttention, SimpleRNN,  TransformerModel, TranslationAI, TranslationAI_v2,TranslationAI_v3 ')
+    parser.add_argument('-t','--model_type', type=str, required=True, help='Model type: SimpleLSTM, LSTMWithAttention, SimpleRNN,  TransformerModel, TRANSAID, TRANSAID_v2,TRANSAID_v3 ')
     parser.add_argument('--output_dir', type=str, required=True, help='Directory to save predictions and plots')
     parser.add_argument('--batch_size', type=int, default=32, help='Batch size for prediction')
     parser.add_argument('--gpu', type=int, default=0, help='GPU device to use')

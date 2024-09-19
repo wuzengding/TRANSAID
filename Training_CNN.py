@@ -48,9 +48,9 @@ class mRNADataset(Dataset):
         return x[:self.max_len], y[:self.max_len]
 
 
-class TranslationAI_v3(nn.Module):
+class TRANSAID_v3(nn.Module):
     def __init__(self, input_channels=4, output_channels=3):
-        super(TranslationAI_v3, self).__init__()
+        super(TRANSAID_v3, self).__init__()
         
         self.conv1 = nn.Conv1d(input_channels, 32, kernel_size=3, padding='same')
         self.bn1 = nn.BatchNorm1d(32)
@@ -111,9 +111,9 @@ class ResidualBlock_v2(nn.Module):
         out = self.conv2(out)
         return out + residual
 
-class TranslationAI_v2(nn.Module):
+class TRANSAID_v2(nn.Module):
     def __init__(self, input_channels=4, output_channels=3):
-        super(TranslationAI_v2, self).__init__()
+        super(TRANSAID_v2, self).__init__()
         
         self.conv1 = nn.Conv1d(input_channels, 32, kernel_size=1, padding='same')
         
@@ -170,10 +170,10 @@ class ResidualBlock(nn.Module):
         out = self.relu(out)
         return out
 
-# TranslationAI-2k模型
-class TranslationAI(nn.Module):
+# TRANSAID-2k模型
+class TRANSAID(nn.Module):
     def __init__(self, input_channels=4, output_channels=3):
-        super(TranslationAI, self).__init__()
+        super(TRANSAID, self).__init__()
         
         self.conv1 = nn.Conv1d(input_channels, 32, kernel_size=3, padding=1)
         self.bn1 = nn.BatchNorm1d(32)
@@ -281,12 +281,12 @@ def main(args):
     dev_loader = DataLoader(dev_dataset, batch_size=args.batch_size, shuffle=False, num_workers=4)
     
     # Initialize model
-    if args.model_type == 'TranslationAI_v1':
-        model = TranslationAI().to(device)
-    elif args.model_type == 'TranslationAI_v2':
-        model = TranslationAI_v2().to(device)
-    elif args.model_type == 'TranslationAI_v3':
-        model =  TranslationAI_v3().to(device)
+    if args.model_type == 'TRANSAID_v1':
+        model = TRANSAID().to(device)
+    elif args.model_type == 'TRANSAID_v2':
+        model = TRANSAID_v2().to(device)
+    elif args.model_type == 'TRANSAID_v3':
+        model =  TRANSAID_v3().to(device)
     else:
         raise ValueError("Unsupported model type.")
 
@@ -318,7 +318,7 @@ def main(args):
     print("Training completed.")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Train TranslationAI-2k model')
+    parser = argparse.ArgumentParser(description='Train TRANSAID-2k model')
     parser.add_argument('--data_dir', type=str, required=True, help='Directory containing encoded data')
     parser.add_argument('--output_dir', type=str, required=True, help='Directory to save model')
     parser.add_argument('--model_type', type=str, required=True, help='Select the model to training')

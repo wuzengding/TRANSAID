@@ -75,10 +75,10 @@ class ResidualBlock(nn.Module):
         out = self.relu(out)
         return out
 
-# TranslationAI-2k模型
-class TranslationAI2k(nn.Module):
+# TRANSAID-2k模型
+class TRANSAID2k(nn.Module):
     def __init__(self, input_channels=4, output_channels=3):
-        super(TranslationAI2k, self).__init__()
+        super(TRANSAID2k, self).__init__()
         
         self.conv1 = nn.Conv1d(input_channels, 32, kernel_size=3, padding=1)
         self.bn1 = nn.BatchNorm1d(32)
@@ -328,7 +328,7 @@ def main(args):
     test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=4)
     
     # Load model
-    model = TranslationAI2k().to(device)
+    model = TRANSAID2k().to(device)
     model.load_state_dict(torch.load(args.model_path, map_location=device))
     
     # Run predictions
@@ -359,7 +359,7 @@ def main(args):
     #plot_roc_curve(y_true_binary, y_scores, args.output_dir, args.prefix)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Run predictions using TranslationAI-2k model')
+    parser = argparse.ArgumentParser(description='Run predictions using TRANSAID-2k model')
     parser.add_argument('--data_dir', type=str, required=True, help='Directory containing encoded data')
     parser.add_argument('--model_path', type=str, required=True, help='Path to the trained model')
     parser.add_argument('--output_dir', type=str, required=True, help='Directory to save predictions and plots')

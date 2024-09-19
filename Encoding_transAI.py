@@ -78,7 +78,7 @@ class DataPreparator:
         print(f"Data prepared and saved to {output_dir}")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Prepare data for TranslationAI")
+    parser = argparse.ArgumentParser(description="Prepare data for TRANSAID")
     parser.add_argument("--fasta", required=True, help="Path to the GRCh38_latest_rna.fna file")
     parser.add_argument("--gbff", required=True, help="Path to the GRCh38_latest_rna.gbff file")
     parser.add_argument("--flank_size", type=int, default=1000, help="Flanking sequence size")
