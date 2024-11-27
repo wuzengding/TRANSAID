@@ -1,0 +1,37 @@
+# project_structure.txt
+translation_site_predictor/
+├── README.md
+├── requirements.txt
+├── configs/
+│   ├── __init__.py
+│   ├── model_config.py
+│   └── training_config.py
+├── src/
+│   ├── __init__.py
+│   ├── features/
+│   │   ├── __init__.py
+│   │   ├── sequence.py
+│   │   ├── structure.py
+│   │   └── utils.py
+│   ├── models/
+│   │   ├── __init__.py
+│   │   ├── modules.py
+│   │   ├── transformer.py
+│   │   └── loss.py
+│   └── data/
+│       ├── __init__.py
+│       ├── dataset.py
+│       └── dataloader.py
+├── utils/
+│   ├── __init__.py
+│   ├── logger.py
+│   └── metrics.py
+├── scripts/
+│   ├── encode.py
+│   ├── train.py
+│   └── predict.py
+└── tests/
+    ├── __init__.py
+    ├── test_features.py
+    ├── test_models.py
+    └── test_data.py
