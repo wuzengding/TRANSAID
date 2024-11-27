@@ -1,0 +1,12 @@
+# 忽略所有文件
+*
+
+# 保留以下文件
+!*.py
+!Project_Structure.txt
+!README.md
+!requirements.txt
+!.gitignore
+
+# 忽略所有目录
+!*/
