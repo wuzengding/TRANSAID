@@ -1,4 +1,0 @@
-configs
-src
-tests
-utils
