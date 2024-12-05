@@ -16,14 +16,30 @@ def set_seed(seed):
     torch.backends.cudnn.benchmark = False
 
 # 解析FASTA文件并获取序列
-def parse_fasta(fasta_file):
+def parse_fasta(fasta_file, transcript_types=None):
+    """
+    Parse FASTA file and get sequences for specified transcript types.
+    
+    Args:
+        fasta_file (str): Path to FASTA file
+        transcript_types (list): List of transcript types (e.g., ["NM", "XM"])
+    """
     sequences = {}
-    accession_NM, accession_XM = 0, 0
+    type_counts = {}
+    
+    if transcript_types is None:
+        transcript_types = ["NM"]  # Default to NM if not specified
+    
     for record in SeqIO.parse(fasta_file, "fasta"):
-        if record.id.split("_")[0] == "XM":
+        record_type = record.id.split("_")[0]
+        if record_type in transcript_types:
             sequences[record.id.split('.')[0]] = str(record.seq)
-            accession_NM += 1
-    print(f'accession_NM number is: {accession_NM}')
+            type_counts[record_type] = type_counts.get(record_type, 0) + 1
+    
+    # Print statistics
+    for t_type, count in type_counts.items():
+        print(f'Number of {t_type} transcripts: {count}')
+        
     return sequences
 
 # 解析GBFF文件并获取CDS注释
@@ -118,18 +134,7 @@ def one_hot_encode(seq, max_len):
     for i, nucleotide in enumerate(seq):
         one_hot[i] = encoding.get(nucleotide, [0, 0, 0, 0])  # Default to [0, 0, 0, 0] if nucleotide is unknown
     return one_hot
-    
-# 添加新的编码函数
-def embedding_encode(seq, max_len):
-    """
-    Encode sequence for embedding layer input.
-    Maps nucleotides to indices: A->0, C->1, G->2, T/U->3
-    """
-    encoding = {'A': 0, 'C': 1, 'G': 2, 'T': 3, 'U': 3}
-    encoded_seq = np.zeros(max_len, dtype=np.int64)
-    for i, nucleotide in enumerate(seq):
-        encoded_seq[i] = encoding.get(nucleotide, 0)
-    return encoded_seq
+
 
 # base 编码
 def base_encode(seq, max_len):
@@ -208,7 +213,7 @@ def main(args):
     os.makedirs(os.path.join(args.output_dir,"validation_check"), exist_ok=True)
 
     # 解析FASTA和GBFF文件
-    sequences = parse_fasta(args.fasta_file)
+    sequences = parse_fasta(args.fasta_file, args.transcript_types)
     cds_annotations = parse_gbff(args.gbff_file)
 
     # 计算长度分布
@@ -294,6 +299,9 @@ if __name__ == "__main__":
     parser.add_argument('--log_file', type=str, required=True, help='Path to the log file')
     parser.add_argument('--encoding_type', type=str, choices=['one_hot', 'base'], required=True, help='Encoding type: "one_hot" or "base"')
     parser.add_argument('--label_type', type=str, choices=['type1', 'type2', 'type3'], required=True, help='Label type to create: "type1", "type2", or "type3"')
+    parser.add_argument('--transcript_types', type=str, nargs='+',
+                       default=['NM'],
+                       help='List of transcript types to include (e.g., NM XM NR XR)')
     parser.add_argument('--max_len', type=float, required=True, help='Absolute length value or a decimal (0-1) indicating percentile')
     parser.add_argument('--train_ratio', type=float, required=True, help='Ratio of training data (e.g., 0.83 for a 5:1 train:validation split)')
     parser.add_argument('--gpu', type=int, required=True, choices=[0, 1], help='GPU device to use: 0 or 1')

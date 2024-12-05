@@ -5,6 +5,8 @@ import torch
 import matplotlib.pyplot as plt
 from Bio import SeqIO
 import random
+import RNA
+from tqdm import tqdm
 
 # 设置随机种子
 def set_seed(seed):
@@ -15,15 +17,60 @@ def set_seed(seed):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
+def structure_encode(seq, max_len):
+    """
+    编码RNA二级结构信息。
+    
+    Args:
+        seq (str): RNA序列
+        max_len (int): 最大序列长度
+    
+    Returns:
+        np.ndarray: 结构编码数组，0=padding, 1=unpaired, 2=paired
+    """
+    # 初始化结构编码数组
+    struct_encoded = np.zeros(max_len, dtype=np.int64)
+    
+    # 使用ViennaRNA预测结构
+    fc = RNA.fold_compound(seq)
+    struct, mfe = fc.mfe()
+    
+    # 编码结构信息
+    for i, char in enumerate(struct):
+        if i >= max_len:
+            break
+        if char == '.':
+            struct_encoded[i] = 1  # unpaired
+        elif char in '()':
+            struct_encoded[i] = 2  # paired
+    
+    return struct_encoded
+
 # 解析FASTA文件并获取序列
-def parse_fasta(fasta_file):
+def parse_fasta(fasta_file, transcript_types=None):
+    """
+    Parse FASTA file and get sequences for specified transcript types.
+    
+    Args:
+        fasta_file (str): Path to FASTA file
+        transcript_types (list): List of transcript types (e.g., ["NM", "XM"])
+    """
     sequences = {}
-    accession_NM, accession_XM = 0, 0
+    type_counts = {}
+    
+    if transcript_types is None:
+        transcript_types = ["NM"]  # Default to NM if not specified
+    
     for record in SeqIO.parse(fasta_file, "fasta"):
-        if record.id.split("_")[0] == "XM":
+        record_type = record.id.split("_")[0]
+        if record_type in transcript_types:
             sequences[record.id.split('.')[0]] = str(record.seq)
-            accession_NM += 1
-    print(f'accession_NM number is: {accession_NM}')
+            type_counts[record_type] = type_counts.get(record_type, 0) + 1
+    
+    # Print statistics
+    for t_type, count in type_counts.items():
+        print(f'Number of {t_type} transcripts: {count}')
+        
     return sequences
 
 # 解析GBFF文件并获取CDS注释
@@ -110,7 +157,6 @@ def insert_bases_in_cds(seq, cds_start, cds_end, insert_length):
     
     return ''.join(seq_list), (cds_start, adjusted_cds_end)
 
-
 # one-hot编码
 def one_hot_encode(seq, max_len):
     encoding = {'A': [1, 0, 0, 0], 'C': [0, 1, 0, 0], 'G': [0, 0, 1, 0], 'T': [0, 0, 0, 1], 'U': [0, 0, 0, 1]}
@@ -118,18 +164,7 @@ def one_hot_encode(seq, max_len):
     for i, nucleotide in enumerate(seq):
         one_hot[i] = encoding.get(nucleotide, [0, 0, 0, 0])  # Default to [0, 0, 0, 0] if nucleotide is unknown
     return one_hot
-    
-# 添加新的编码函数
-def embedding_encode(seq, max_len):
-    """
-    Encode sequence for embedding layer input.
-    Maps nucleotides to indices: A->0, C->1, G->2, T/U->3
-    """
-    encoding = {'A': 0, 'C': 1, 'G': 2, 'T': 3, 'U': 3}
-    encoded_seq = np.zeros(max_len, dtype=np.int64)
-    for i, nucleotide in enumerate(seq):
-        encoded_seq[i] = encoding.get(nucleotide, 0)
-    return encoded_seq
+
 
 # base 编码
 def base_encode(seq, max_len):
@@ -185,21 +220,11 @@ def split_data(sequences, labels, train_ratio, seed):
 
     return train_data, val_data, train_labels, val_labels
 
-# 保存检查样本
-def save_check_samples(data, labels, output_dir, folder_name, sample_size=100):
-    check_dir = os.path.join(output_dir, folder_name)
-    os.makedirs(check_dir, exist_ok=True)
-    
-    sample_keys = list(data.keys())[:sample_size]  # Select the first 100 keys
-    
-    for seq_id in sample_keys:
-        torch.save(data[seq_id], os.path.join(check_dir, f'{seq_id}_encoded.pt'))
-        torch.save(labels[seq_id], os.path.join(check_dir, f'{seq_id}_labels.pt'))
 
 # 主函数
 def main(args):
     set_seed(args.seed)
-
+    
     # 确保输出目录存在
     os.makedirs(args.output_dir, exist_ok=True)
     os.makedirs(os.path.join(args.output_dir,"train"), exist_ok=True)
@@ -208,7 +233,7 @@ def main(args):
     os.makedirs(os.path.join(args.output_dir,"validation_check"), exist_ok=True)
 
     # 解析FASTA和GBFF文件
-    sequences = parse_fasta(args.fasta_file)
+    sequences = parse_fasta(args.fasta_file, args.transcript_types)
     cds_annotations = parse_gbff(args.gbff_file)
 
     # 计算长度分布
@@ -232,11 +257,16 @@ def main(args):
     '''
 
     # 准备训练和验证数据
+    print("Processing sequences...")
     encoded_data = {}
+    struct_data = {}  # 新增结构数据字典
     labels_data = {}
-    for seq_id, sequence in sequences.items():
-        if len(sequence) > max_len:
-            continue  # Skip sequences longer than the cutoff
+    
+    # 获取要处理的序列总数，用于进度显示
+    sequences_to_process = [(seq_id, sequence) for seq_id, sequence in sequences.items() 
+                       if len(sequence) <= max_len and seq_id in cds_annotations]
+    # 使用tqdm创建进度条
+    for seq_id, sequence in tqdm(sequences_to_process, desc="Encoding sequences"):
         if seq_id in cds_annotations:
             cds_regions = cds_annotations[seq_id]
 
@@ -244,14 +274,13 @@ def main(args):
             if args.utr_shuffle != 'none':
                 sequence = shuffle_utr(sequence, cds_regions[0], cds_regions[1], args.utr_shuffle)
             
-            # Apply deletion mutation if specified
+            # Apply deletion/insertion mutations if specified
             if args.delete_bases > 0:
                 sequence, cds_regions = delete_bases_in_cds(sequence, cds_regions[0], cds_regions[1], args.delete_bases)
-
-            # Apply insertion mutation if specified
             if args.insert_bases > 0:
                 sequence, cds_regions = insert_bases_in_cds(sequence, cds_regions[0], cds_regions[1], args.insert_bases)
 
+            # 序列编码
             if args.encoding_type == 'one_hot':
                 encoded_sequence = one_hot_encode(sequence, max_len)
                 dtype = torch.float32
@@ -259,32 +288,74 @@ def main(args):
                 encoded_sequence = base_encode(sequence, max_len)
                 dtype = torch.long
             
+            # 结构编码（如果启用）
+            if args.encode_structure:
+                struct_encoded = structure_encode(sequence, max_len)
+                struct_data[seq_id] = torch.tensor(struct_encoded, dtype=torch.long)
+            
+            # 创建标签
             labels, TIS, TTS, Flag = create_labels(sequence, cds_regions, max_len, args.label_type)
             encoded_data[seq_id] = torch.tensor(encoded_sequence, dtype=dtype)
             labels_data[seq_id] = torch.tensor(labels, dtype=torch.long)
             
         else:
-            print(f'{seq_id} neither not in  annotation files')    
-    
+            print(f'{seq_id} not in annotation files')
+
+    # 划分数据集
     train_data, val_data, train_labels, val_labels = split_data(
-        encoded_data, labels_data, args.train_ratio, args.seed )
+        encoded_data, labels_data, args.train_ratio, args.seed)
     
+    if args.encode_structure:
+        train_struct, val_struct, _, _ = split_data(
+            struct_data, labels_data, args.train_ratio, args.seed)
 
     # 保存数据
     for seq_id, tensor in train_data.items():
-        torch.save(tensor, os.path.join(os.path.join(args.output_dir,"train"), f'{seq_id}_encoded.pt'))
+        torch.save(tensor, os.path.join(args.output_dir, "train", f'{seq_id}_encoded.pt'))
+        if args.encode_structure:
+            torch.save(train_struct[seq_id], 
+                      os.path.join(args.output_dir, "train", f'{seq_id}_structure.pt'))
+    
     for seq_id, tensor in train_labels.items():
-        torch.save(tensor, os.path.join(os.path.join(args.output_dir,"train"), f'{seq_id}_labels.pt'))
+        torch.save(tensor, os.path.join(args.output_dir, "train", f'{seq_id}_labels.pt'))
+ 
     for seq_id, tensor in val_data.items():
-        torch.save(tensor, os.path.join(os.path.join(args.output_dir,"validation"), f'{seq_id}_encoded.pt'))
+        torch.save(tensor, os.path.join(args.output_dir, "validation", f'{seq_id}_encoded.pt'))
+        if args.encode_structure:
+            torch.save(val_struct[seq_id], 
+                       os.path.join(args.output_dir, "validation", f'{seq_id}_structure.pt'))
+    
     for seq_id, tensor in val_labels.items():
-        torch.save(tensor, os.path.join(os.path.join(args.output_dir,"validation"), f'{seq_id}_labels.pt'))
+        torch.save(tensor, os.path.join(args.output_dir, "validation", f'{seq_id}_labels.pt'))
 
-    # 保存前100个检查样本
-    save_check_samples(train_data, train_labels, args.output_dir, "train_check")
-    save_check_samples(val_data, val_labels, args.output_dir, "validation_check")
+    # 保存检查样本
+    if args.encode_structure:
+        train_struct = train_struct
+        val_struct = val_struct
+    else:
+        train_struct = None
+        val_struct = None
+    
+    save_check_samples_with_structure(train_data, train_struct, train_labels, 
+                                        args.output_dir, "train_check")
+    save_check_samples_with_structure(val_data, val_struct, val_labels, 
+                                        args.output_dir, "validation_check")
 
     print("All sequences processed and saved.")
+
+# 保存检查样本
+def save_check_samples_with_structure(data, struct_data, labels, output_dir, 
+                                        folder_name, sample_size=100):
+    check_dir = os.path.join(output_dir, folder_name)
+    os.makedirs(check_dir, exist_ok=True)
+        
+    sample_keys = list(data.keys())[:sample_size]
+    for seq_id in sample_keys:
+        torch.save(data[seq_id], os.path.join(check_dir, f'{seq_id}_encoded.pt'))
+        if args.encode_structure and struct_data != None:
+            torch.save(struct_data[seq_id], 
+                      os.path.join(check_dir, f'{seq_id}_structure.pt'))
+        torch.save(labels[seq_id], os.path.join(check_dir, f'{seq_id}_labels.pt'))
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Process and encode mRNA sequences.')
@@ -292,8 +363,14 @@ if __name__ == "__main__":
     parser.add_argument('--gbff_file', type=str, required=True, help='Path to the GBFF file')
     parser.add_argument('--output_dir', type=str, required=True, help='Directory to save encoded data')
     parser.add_argument('--log_file', type=str, required=True, help='Path to the log file')
+    parser.add_argument('--encode_structure', action='store_true',help='Whether to encode RNA secondary structure')
+    parser.add_argument('--structure_method', type=str,choices=['vienna'], default='vienna',
+                       help='Method for structure prediction')
     parser.add_argument('--encoding_type', type=str, choices=['one_hot', 'base'], required=True, help='Encoding type: "one_hot" or "base"')
     parser.add_argument('--label_type', type=str, choices=['type1', 'type2', 'type3'], required=True, help='Label type to create: "type1", "type2", or "type3"')
+    parser.add_argument('--transcript_types', type=str, nargs='+',
+                       default=['NM'],
+                       help='List of transcript types to include (e.g., NM XM NR XR)')
     parser.add_argument('--max_len', type=float, required=True, help='Absolute length value or a decimal (0-1) indicating percentile')
     parser.add_argument('--train_ratio', type=float, required=True, help='Ratio of training data (e.g., 0.83 for a 5:1 train:validation split)')
     parser.add_argument('--gpu', type=int, required=True, choices=[0, 1], help='GPU device to use: 0 or 1')

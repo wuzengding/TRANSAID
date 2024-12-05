@@ -8,6 +8,8 @@ from tqdm import tqdm
 from sklearn.metrics import confusion_matrix, roc_curve, auc
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 import matplotlib.pyplot as plt
+import math
+import torch.nn.functional as F
 
 # 自定义数据集
 class mRNADataset(Dataset):
@@ -39,14 +41,18 @@ class mRNADataset(Dataset):
 
         # Ensure x and y have the same sequence length
         seq_len = min(x.size(0), y.size(0), self.max_len)
-        x = x[:seq_len]
-        y = y[:seq_len]
+        #x = x[:seq_len]
+        #y = y[:seq_len]
 
         # Calculate the true sequence length excluding padding
-        true_seq_len = (x.sum(dim=1) != 0).sum().item() 
+        if args.model_type in ['TRANSAID_Embedding', 'TRANSAID_Embedding_v2'] :
+            true_seq_len = (x != 0).sum().item() 
+        else:
+            true_seq_len = (x.sum(dim=1) != 0).sum().item() 
         
         # Pad or truncate to max_len
         if x.size(0) < self.max_len:
+            print("warning short reads:")
             x_padded = torch.zeros((self.max_len, 4), dtype=torch.float32)
             x_padded[:x.size(0), :] = x
             y_padded = torch.full((self.max_len, 3), -1, dtype=torch.long)
@@ -55,7 +61,220 @@ class mRNADataset(Dataset):
         else:
             return x, y, seq_id, true_seq_len
 
+class TRANSAID_Transformer(nn.Module):
+    def __init__(self, 
+                 num_embeddings=5,      # 0=padding, 1-4=ACGT/U
+                 embedding_dim=128,      # embedding维度
+                 num_layers=4,          # transformer层数
+                 nhead=8,               # 注意力头数
+                 dim_feedforward=512,    # 前馈网络维度
+                 dropout=0.1,           # dropout率
+                 output_channels=3):     # 输出类别数
+        super(TRANSAID_Transformer, self).__init__()
+        
+        # Embedding层
+        self.embedding = nn.Embedding(
+            num_embeddings=num_embeddings,
+            embedding_dim=embedding_dim,
+            padding_idx=0
+        )
+        
+        # 位置编码
+        self.pos_encoder = PositionalEncoding(embedding_dim, dropout)
+        
+        # Transformer编码器层
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=embedding_dim,
+            nhead=nhead,
+            dim_feedforward=dim_feedforward,
+            dropout=dropout,
+            batch_first=True
+        )
+        
+        self.transformer_encoder = nn.TransformerEncoder(
+            encoder_layer,
+            num_layers=num_layers
+        )
+        
+        # 输出映射
+        self.output_layer = nn.Sequential(
+            nn.Linear(embedding_dim, dim_feedforward),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(dim_feedforward, output_channels)
+        )
 
+    def forward(self, x):
+        # 生成padding mask
+        padding_mask = (x == 0)  # (batch_size, seq_len)
+        
+        # Embedding和位置编码
+        x = self.embedding(x)  # (batch_size, seq_len, embedding_dim)
+        x = self.pos_encoder(x)
+        
+        # Transformer编码器
+        x = self.transformer_encoder(x, src_key_padding_mask=padding_mask)
+        
+        # 输出层
+        output = self.output_layer(x)
+        
+        return output
+        
+class PositionalEncoding(nn.Module):
+    def __init__(self, d_model, dropout=0.1, max_len=5049):
+        super(PositionalEncoding, self).__init__()
+        self.dropout = nn.Dropout(p=dropout)
+
+        position = torch.arange(max_len).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
+        pe = torch.zeros(1, max_len, d_model)
+        pe[0, :, 0::2] = torch.sin(position * div_term)
+        pe[0, :, 1::2] = torch.cos(position * div_term)
+        self.register_buffer('pe', pe)
+
+    def forward(self, x):
+        x = x + self.pe[:, :x.size(1)]
+        return self.dropout(x)
+        
+class SelfAttention(nn.Module):
+    def __init__(self, channels):
+        super().__init__()
+        self.query = nn.Conv1d(channels, channels//8, 1)
+        self.key = nn.Conv1d(channels, channels//8, 1)
+        self.value = nn.Conv1d(channels, channels, 1)
+        self.gamma = nn.Parameter(torch.zeros(1))
+        
+    def forward(self, x):
+        batch_size, C, length = x.size()
+        
+        query = self.query(x).view(batch_size, -1, length)
+        key = self.key(x).view(batch_size, -1, length)
+        value = self.value(x).view(batch_size, -1, length)
+        
+        attention = torch.bmm(query.permute(0, 2, 1), key)
+        attention = F.softmax(attention, dim=-1)
+        
+        out = torch.bmm(value, attention.permute(0, 2, 1))
+        
+        return x + self.gamma * out
+        
+class TRANSAID_Embedding_v2(nn.Module):
+    def __init__(self, embedding_dim=128, output_channels=3):  # 增加embedding维度
+        super().__init__()
+        
+        # Embedding层
+        self.embedding = nn.Embedding(5, embedding_dim, padding_idx=0)
+        self.pos_encoder = PositionalEncoding(embedding_dim)
+        self.emb_dropout = nn.Dropout(0.1)
+        
+        # 多尺度卷积分支
+        self.conv_branches = nn.ModuleList([
+            nn.Conv1d(embedding_dim, 32, kernel_size=k, padding='same')
+            for k in [3, 5, 7]  # 多个卷积核大小
+        ])
+        
+        # 主干网络
+        self.conv1 = nn.Conv1d(96, 64, kernel_size=3, padding='same')  # 96 = 32*3
+        self.bn1 = nn.BatchNorm1d(64)
+        self.relu = nn.ReLU()
+        
+        # 多尺度残差块
+        self.rb1 = nn.Sequential(*[
+            ResidualBlock_v2(64, 26, dilation=2**i) 
+            for i in range(4)  # 使用不同的膨胀率
+        ])
+        
+        self.conv2 = nn.Conv1d(64, 128, kernel_size=1)
+        self.bn2 = nn.BatchNorm1d(128)
+        
+        self.rb2 = nn.Sequential(*[
+            ResidualBlock_v2(128, 26, dilation=2**i)
+            for i in range(4)
+        ])
+        
+        # 注意力机制
+        self.attention = SelfAttention(128)
+        
+        # 输出层
+        self.conv3 = nn.Conv1d(128, 64, kernel_size=1)
+        self.dropout = nn.Dropout(0.2)
+        self.conv4 = nn.Conv1d(64, output_channels, kernel_size=1)
+
+    def forward(self, x):
+        # Embedding
+        x = self.embedding(x)
+        x = self.pos_encoder(x)
+        x = self.emb_dropout(x)
+        x = x.permute(0, 2, 1)
+        
+        # 多尺度特征提取
+        conv_outputs = []
+        for conv in self.conv_branches:
+            conv_outputs.append(conv(x))
+        x = torch.cat(conv_outputs, dim=1)
+        
+        # 主干网络处理
+        x = self.relu(self.bn1(self.conv1(x)))
+        x = self.rb1(x)
+        x = self.relu(self.bn2(self.conv2(x)))
+        x = self.rb2(x)
+        
+        # 注意力处理
+        x = self.attention(x)
+        
+        # 输出层
+        x = self.relu(self.conv3(x))
+        x = self.dropout(x)
+        x = self.conv4(x)
+        
+        return x.permute(0, 2, 1)
+
+class TRANSAID_Embedding(nn.Module):
+    def __init__(self, embedding_dim=128, output_channels=3):
+        super(TRANSAID_Embedding, self).__init__()
+        
+        # Embedding层：5个可能的值(0-4)，0用作padding
+        self.embedding = nn.Embedding(
+            num_embeddings=5,  # 0=padding, 1=A, 2=C, 3=G, 4=T/U
+            embedding_dim=embedding_dim,
+            padding_idx=0  # 指定padding_idx确保padding token的embedding始终为0
+        )
+        
+        # 其余架构保持不变
+        self.conv1 = nn.Conv1d(embedding_dim, 32, kernel_size=3, padding='same')
+        self.bn1 = nn.BatchNorm1d(32)
+        self.relu = nn.ReLU()
+        
+        self.rb1 = nn.Sequential(*[ResidualBlock_v2(32, 26, 1) for _ in range(4)])
+        self.conv2 = nn.Conv1d(32, 64, kernel_size=1, padding='same')
+        self.bn2 = nn.BatchNorm1d(64)
+        
+        self.rb2 = nn.Sequential(*[ResidualBlock_v2(64, 26, 2) for _ in range(4)])
+        self.conv3 = nn.Conv1d(64, 128, kernel_size=1, padding='same')
+        self.bn3 = nn.BatchNorm1d(128)
+        
+        self.rb3 = nn.Sequential(*[ResidualBlock_v2(128, 36, 5) for _ in range(4)])
+        self.conv4 = nn.Conv1d(128, 32, kernel_size=1, padding='same')
+        
+        self.conv5 = nn.Conv1d(32, output_channels, kernel_size=1, padding='same')
+
+    def forward(self, x):
+        # x形状: (batch_size, seq_len)，值域: 0-4
+        x = self.embedding(x)  # (batch_size, seq_len, embedding_dim)
+        x = x.permute(0, 2, 1)  # (batch_size, embedding_dim, seq_len)
+        
+        x = self.relu(self.bn1(self.conv1(x)))
+        x = self.rb1(x)
+        x = self.relu(self.bn2(self.conv2(x)))
+        x = self.rb2(x)
+        x = self.relu(self.bn3(self.conv3(x)))
+        x = self.rb3(x)
+        x = self.conv4(x)
+        x = self.conv5(x)
+        
+        x = x.permute(0, 2, 1)  # (batch_size, seq_len, output_channels)
+        return x
+        
 class TRANSAID_v3(nn.Module):
     def __init__(self, input_channels=4, output_channels=3):
         super(TRANSAID_v3, self).__init__()
@@ -277,30 +496,39 @@ def predict(model, loader, device, output_dir):
         for x, y, seq_id, seq_len in tqdm(loader, desc="Predicting"):
             x = x.to(device)
             y = y.to(device)
-            print("xshape", x.shape)
-            print("yshape", y.shape)
+            #print("xshape", x.shape)
+            #print("yshape", y.shape)
 
             outputs = model(x)
                         
            
             # Reshape outputs and labels
-            outputs = outputs.reshape(-1, outputs.size(-1))  # (batch_size * seq_len, num_classes)
-            outputs = outputs.argmax(dim=1)
             
-            y = y.reshape(-1, y.size(-1))
-            y = y.argmax(dim=1)
+            #print("outputs", outputs.shape)
+            outputs = outputs.reshape(-1, outputs.size(-1))  # (batch_size * seq_len, num_classes)
+            outputs = outputs.argmax(dim=1) ## for debug
+            #print("outputs", outputs.shape)
+            
+            y = y.reshape(-1, y.size(-1))  ## for debug
+            y = y.argmax(dim=1)  ## for debug
 
+            #y = y.argmax(dim=2).reshape(-1) ## for debug
 
             # Apply the mask
             # Create a mask for valid input regions or valid labels
-            valid_mask = (x.sum(dim=-1) != 0)
-            valid_mask = valid_mask.reshape(-1)
+            if args.model_type in ['TRANSAID_Embedding','TRANSAID_Embedding_v2','TRANSAID_Transforemer']:
+                valid_mask = (x != 0).reshape(-1)
+            else:
+                valid_mask = (x.sum(dim=-1) != 0).reshape(-1)
 
+            #print("valid_mask:", len(valid_mask))
+            #print("outputs1", outputs.shape)
+            #print("yshape1", y.shape)
             outputs = outputs[valid_mask]
             y = y[valid_mask]
-
-            print("outputs", outputs.shape)
-            print("yshape", y.shape)
+            
+            #print("outputs2", outputs.shape)
+            #print("yshape2", y.shape)
             predictions.append(outputs.cpu().numpy())
             true_labels.append(y.cpu().numpy())
             seq_ids.append(np.array(list(seq_id)))
@@ -440,13 +668,19 @@ def classify_transcript_predictions(true_labels, predictions, seq_ids, seq_lengt
         
 
         # Check for partial correctness
-        partial_tis = np.any(tis_true & tis_pred)
-        partial_tts = np.any(tts_true & tts_pred)
-        partially_correct = (partial_tis and partial_tts) and nontistts_correct
-
+        #partial_tis = np.any(tis_true & tis_pred)
+        #partial_tts = np.any(tts_true & tts_pred)
+        #partially_correct = (partial_tis and partial_tts) and nontistts_correct
+        partial_tis = np.sum(tis_true & tis_pred)>=2
+        partial_tts = np.sum(tts_true & tts_pred)>=2
+        partial_nontistts = np.sum((nontistts_true == nontistts_pred) == 0) <=1
+        partially_correct = (partial_tis and partial_tts) and partial_nontistts
+        
         if all_correct:
+            #print(partial_nontistts)
             results['Right ORF with all base correct'] += 1
         elif partially_correct:
+            #print(partial_nontistts)
             results['Right ORF with base incorrect partially'] += 1
         elif tis_correct and not tts_correct:
             results['Wrong ORF but with right TIS'] += 1
@@ -513,6 +747,12 @@ def main(args):
         model = TRANSAID_v2().to(device)
     elif args.model_type == 'TRANSAID_v3':
         model = TRANSAID_v3().to(device)
+    elif args.model_type == 'TRANSAID_Embedding':
+        model = TRANSAID_Embedding(embedding_dim=64, output_channels=3).to(device)
+    elif args.model_type == "TRANSAID_Embedding_v2":
+        model = TRANSAID_Embedding_v2(embedding_dim=128,output_channels=3).to(device)
+    elif args.model_type == 'TRANSAID_Transformer':
+        model = TRANSAID_Transformer().to(device)
     else:
         raise ValueError("Unsupported model type.")
     
@@ -554,7 +794,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Run predictions using TRANSAID-2k model')
     parser.add_argument('--data_dir', type=str, required=True, help='Directory containing encoded data')
     parser.add_argument('--model_path', type=str, required=True, help='Path to the trained model')
-    parser.add_argument('-t','--model_type', type=str, required=True, help='Model type: SimpleLSTM, LSTMWithAttention, SimpleRNN,  TransformerModel, TRANSAID, TRANSAID_v2,TRANSAID_v3 ')
+    parser.add_argument('-t','--model_type', type=str, required=True, help='Model type: SimpleLSTM, LSTMWithAttention, SimpleRNN,  TransformerModel, TRANSAID, TRANSAID_v2, TRANSAID_v3, TRANSAID_Embedding, TRANSAID_Embedding_v2, TRANSAID_Transforemer')
     parser.add_argument('--output_dir', type=str, required=True, help='Directory to save predictions and plots')
     parser.add_argument('--batch_size', type=int, default=32, help='Batch size for prediction')
     parser.add_argument('--gpu', type=int, default=0, help='GPU device to use')
