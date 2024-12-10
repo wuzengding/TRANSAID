@@ -174,6 +174,7 @@ def create_labels(seq, cds_regions, max_len, label_type):
     Flag = int(len(labels[0:seq_len]) == len(seq[0:seq_len]))
     return labels, TIS, TTS, Flag
 
+
 # 随机划分数据集
 def split_data(sequences, labels, train_ratio, seed):
     set_seed(seed)

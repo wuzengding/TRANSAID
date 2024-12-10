@@ -39,8 +39,14 @@
 ## training with embedding_transformer  at 20241202
 #python /home/jovyan/work/insilico_translation/script/Training_CNN3.py  --data_dir /home/jovyan/work/insilico_translation/embedding_type3_maxlen75_ratio80_NM/train   --output_dir  /home/jovyan/work/insilico_translation/embedding_type3_maxlen75_ratio80_NM   --model_type  'TRANSAID_Transformer' --batch_size 32   --learning_rate 0.001   --epochs 50   --patience 5     --gpu 1   --seed 42 --prefix 'TRANSAID_Transformer'
 
-## training with embedding_code  at 20241204
-python /home/jovyan/work/insilico_translation/script/Training_CNN3.py  --data_dir /home/jovyan/work/insilico_translation/embedding_type3_maxlen75_ratio80_NM/train   --output_dir  /home/jovyan/work/insilico_translation/embedding_type3_maxlen75_ratio80_NM   --model_type  'TRANSAID_Embedding_v2' --batch_size 32   --learning_rate 0.001   --epochs 50   --patience 5     --gpu 0  --seed 42 --prefix 'TRANSAID_Embedding_v2'
-
 ## training with embedding_code  at 20241205
 #python /home/jovyan/work/insilico_translation/script/Training_CNN3.py  --data_dir /home/jovyan/work/insilico_translation/embedding_type3_maxlen75_ratio80_NM/train   --output_dir  /home/jovyan/work/insilico_translation/embedding_type3_maxlen75_ratio80_NM   --model_type  'TRANSAID_Embedding' --batch_size 32   --learning_rate 0.001   --epochs 50   --patience 5     --gpu 1  --seed 42 --prefix 'TRANSAID_Embedding_dim128'
+
+## training with embedding_code  at 20241205
+#python /home/jovyan/work/insilico_translation/script/Training_CNN3.py  --data_dir /home/jovyan/work/insilico_translation/embedding_type3_maxlen75_ratio80_NM/train   --output_dir  /home/jovyan/work/insilico_translation/embedding_type3_maxlen75_ratio80_NM   --model_type  'TRANSAID_Embedding_v2' --batch_size 1   --learning_rate 0.001   --epochs 50   --patience 5     --gpu 0  --seed 42 --prefix 'TRANSAID_Embedding_v2_batch1'
+
+## training with embedding_code  at 20241205
+#python /home/jovyan/work/insilico_translation/script/Training_CNN3.py  --data_dir /home/jovyan/work/insilico_translation/embedding_type3_maxlen5049_ratio80_NM_NR/train   --output_dir  /home/jovyan/work/insilico_translation/embedding_type3_maxlen5049_ratio80_NM_NR   --model_type  'TRANSAID_Embedding_v2' --batch_size 1   --learning_rate 0.001   --epochs 50   --patience 5     --gpu 0  --seed 42 --prefix 'TRANSAID_Embedding_v2_batch1'
+
+## training with embedding_code  at 20241205
+python /home/jovyan/work/insilico_translation/script/Training_CNN3.py  --data_dir /home/jovyan/work/insilico_translation/embedding_type3_maxlen5049_ratio80_NM_NR/train   --output_dir  /home/jovyan/work/insilico_translation/embedding_type3_maxlen5049_ratio80_NM_NR   --model_type  'TRANSAID_Embedding_v2' --batch_size 32   --learning_rate 0.001   --epochs 50   --patience 5     --gpu 1  --seed 42 --prefix 'TRANSAID_Embedding_v2_batch32'

@@ -74,12 +74,21 @@ def parse_fasta(fasta_file, transcript_types=None):
     return sequences
 
 # 解析GBFF文件并获取CDS注释
-def parse_gbff(gbff_file):
+def parse_gbff(gbff_file, transcript_types=None):
+    if transcript_types is None:
+        transcript_types = ["NM"]  # Default to NM if not specified
+        
     cds_annotations = {}
     for record in SeqIO.parse(gbff_file, "genbank"):
-        for feature in record.features:
-            if feature.type == "CDS":
-                cds_annotations[record.id.split('.')[0]] = (int(feature.location.start), int(feature.location.end))
+        trans_type = record.id.split("_")[0]
+        trans_id = record.id.split(".")[0]
+        if trans_type in ["NM","XM"]  and trans_type in  transcript_types:
+            for feature in record.features:
+                if feature.type == "CDS":
+                    cds_annotations[trans_id] = (int(feature.location.start), 
+                                                 int(feature.location.end))
+        elif trans_type in ["NR","XR"] and trans_type in transcript_types:
+            cds_annotations[trans_id] = (None, None)
     return cds_annotations
 
 # 计算UTR区域
@@ -188,24 +197,25 @@ def create_labels(seq, cds_regions, max_len, label_type):
         labels[0:seq_len] = 0  # Label 5' & 3' UTR region
     
     start, end = cds_regions
-    if label_type == 'type1':
-        labels[start:start+3] = 2  # Label start codon
-        labels[end-3:end] = 1  # Label stop codon
-    elif label_type == 'type2':
-        labels[start:start+3] = 3  # Label start codon
-        labels[end-3:end] = 2  # Label stop codon
-        labels[start+3:end-3] = 1  # Label coding region
-    elif label_type == 'type3':
-        labels[start:start+3] = [1, 0, 0]  # Label TIS region
-        labels[end-3:end] = [0, 1, 0]  # Label TTS region
-        labels[start+3:end-3] = [0, 0, 1]  # Label non-TIS/TTS coding region
+    if start != None and end != None:
+        if label_type == 'type1':
+            labels[start:start+3] = 2  # Label start codon
+            labels[end-3:end] = 1  # Label stop codon
+        elif label_type == 'type2':
+            labels[start:start+3] = 3  # Label start codon
+            labels[end-3:end] = 2  # Label stop codon
+            labels[start+3:end-3] = 1  # Label coding region
+        elif label_type == 'type3':
+            labels[start:start+3] = [1, 0, 0]  # Label TIS region
+            labels[end-3:end] = [0, 1, 0]  # Label TTS region
+            labels[start+3:end-3] = [0, 0, 1]  # Label non-TIS/TTS coding region
 
-    TIS, TTS = seq[start:start+3], seq[end-3:end]
-    Flag = int(len(labels[0:seq_len]) == len(seq[0:seq_len]))
-    return labels, TIS, TTS, Flag
+    #TIS, TTS = seq[start:start+3], seq[end-3:end]
+    #Flag = int(len(labels[0:seq_len]) == len(seq[0:seq_len]))
+    return labels#, TIS, TTS, Flag
 
 # 随机划分数据集
-def split_data(sequences, labels, train_ratio, seed):
+def split_data_(sequences, labels, train_ratio, seed):
     set_seed(seed)
     all_keys = list(sequences.keys())
     train_size = int(len(all_keys) * train_ratio)
@@ -220,6 +230,64 @@ def split_data(sequences, labels, train_ratio, seed):
 
     return train_data, val_data, train_labels, val_labels
 
+def split_data(sequences, labels, train_ratio, seed):
+    """
+    Split data by transcript type according to the specified ratio.
+    
+    Args:
+        sequences (dict): Dictionary of sequences with transcript IDs as keys
+        labels (dict): Dictionary of labels with transcript IDs as keys
+        train_ratio (float): Ratio for training set split (e.g., 0.8)
+        seed (int): Random seed for reproducibility
+    
+    Returns:
+        tuple: (train_data, val_data, train_labels, val_labels)
+    """
+    set_seed(seed)
+    
+    # Group sequences by transcript type (NM, NR, XM, etc.)
+    type_groups = {}
+    for seq_id in sequences.keys():
+        trans_type = seq_id.split("_")[0]  # Get transcript type from ID
+        if trans_type not in type_groups:
+            type_groups[trans_type] = []
+        type_groups[trans_type].append(seq_id)
+    
+    # Initialize dictionaries for train and validation sets
+    train_data = {}
+    val_data = {}
+    train_labels = {}
+    val_labels = {}
+    
+    # Split each transcript type according to the ratio
+    for trans_type, type_ids in type_groups.items():
+        # Shuffle the IDs for this transcript type
+        shuffled_ids = type_ids.copy()
+        random.shuffle(shuffled_ids)
+        
+        # Calculate split point for this type
+        train_size = int(len(shuffled_ids) * train_ratio)
+        
+        # Split IDs for this type
+        train_ids = shuffled_ids[:train_size]
+        val_ids = shuffled_ids[train_size:]
+        
+        # Add sequences and labels to respective sets
+        for seq_id in train_ids:
+            train_data[seq_id] = sequences[seq_id]
+            train_labels[seq_id] = labels[seq_id]
+            
+        for seq_id in val_ids:
+            val_data[seq_id] = sequences[seq_id]
+            val_labels[seq_id] = labels[seq_id]
+        
+        # Print statistics for this type
+        print(f"Split for {trans_type}:")
+        print(f"  Total: {len(type_ids)}")
+        print(f"  Train: {len(train_ids)} ({len(train_ids)/len(type_ids)*100:.1f}%)")
+        print(f"  Val: {len(val_ids)} ({len(val_ids)/len(type_ids)*100:.1f}%)")
+
+    return train_data, val_data, train_labels, val_labels
 
 # 主函数
 def main(args):
@@ -232,9 +300,10 @@ def main(args):
     os.makedirs(os.path.join(args.output_dir,"train_check"), exist_ok=True)
     os.makedirs(os.path.join(args.output_dir,"validation_check"), exist_ok=True)
 
+    print("args.transcript_types",args.transcript_types)
     # 解析FASTA和GBFF文件
     sequences = parse_fasta(args.fasta_file, args.transcript_types)
-    cds_annotations = parse_gbff(args.gbff_file)
+    cds_annotations = parse_gbff(args.gbff_file, args.transcript_types)
 
     # 计算长度分布
     lengths = [len(seq) for seq in sequences.values()]
@@ -267,6 +336,7 @@ def main(args):
                        if len(sequence) <= max_len and seq_id in cds_annotations]
     # 使用tqdm创建进度条
     for seq_id, sequence in tqdm(sequences_to_process, desc="Encoding sequences"):
+        #print("seq_id",seq_id, "sequence",sequence) ## for debug
         if seq_id in cds_annotations:
             cds_regions = cds_annotations[seq_id]
 
@@ -294,7 +364,8 @@ def main(args):
                 struct_data[seq_id] = torch.tensor(struct_encoded, dtype=torch.long)
             
             # 创建标签
-            labels, TIS, TTS, Flag = create_labels(sequence, cds_regions, max_len, args.label_type)
+            #labels, TIS, TTS, Flag = create_labels(sequence, cds_regions, max_len, args.label_type)
+            labels = create_labels(sequence, cds_regions, max_len, args.label_type)
             encoded_data[seq_id] = torch.tensor(encoded_sequence, dtype=dtype)
             labels_data[seq_id] = torch.tensor(labels, dtype=torch.long)
             
@@ -368,7 +439,7 @@ if __name__ == "__main__":
                        help='Method for structure prediction')
     parser.add_argument('--encoding_type', type=str, choices=['one_hot', 'base'], required=True, help='Encoding type: "one_hot" or "base"')
     parser.add_argument('--label_type', type=str, choices=['type1', 'type2', 'type3'], required=True, help='Label type to create: "type1", "type2", or "type3"')
-    parser.add_argument('--transcript_types', type=str, nargs='+',
+    parser.add_argument('--transcript_types', type=lambda s: s.split(','),
                        default=['NM'],
                        help='List of transcript types to include (e.g., NM XM NR XR)')
     parser.add_argument('--max_len', type=float, required=True, help='Absolute length value or a decimal (0-1) indicating percentile')
