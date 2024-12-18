@@ -234,45 +234,6 @@ class TranscriptAnalyzer:
             
         return stats
 
-    def generate_formatted_sequences_report_(self, output_dir):
-        """
-        生成格式化序列的HTML报告
-        """
-        html_content = """
-        <html>
-        <head>
-            <style>
-                table { border-collapse: collapse; width: 100%; }
-                th, td { padding: 8px; text-align: left; border: 1px solid #ddd; }
-                th { background-color: #f2f2f2; }
-                .sequence { font-family: monospace; }
-            </style>
-        </head>
-        <body>
-            <h2>Formatted Sequence Report</h2>
-            <table>
-                <tr>
-                    <th>Transcript ID</th>
-                    <th>Formatted Sequence</th>
-                </tr>
-        """
-        
-        # 添加每个转录本的格式化序列
-        for transcript_id in sorted(self.data.keys()):
-            html_content += self.format_sequence_with_predictions(transcript_id)
-        
-        html_content += """
-            </table>
-        </body>
-        </html>
-        """
-        
-        # 保存HTML报告
-        output_file = os.path.join(output_dir, f"{self.prefix}_formatted_sequences.html")
-        with open(output_file, 'w') as f:
-            f.write(html_content)
-            
-        print(f"Saved formatted sequences report to {output_file}")
 
     def format_sequence_with_predictions(self, transcript_id):
         """
@@ -365,7 +326,7 @@ class TranscriptAnalyzer:
         
         return sorted_stats, total_count
 
-    def generate_formatted_sequences_report(self, output_dir):
+    def generate_formatted_sequences_report_(self, output_dir):
         """
         生成格式化序列报告和统计报告
         """
@@ -452,6 +413,242 @@ class TranscriptAnalyzer:
         """
         
         # 保存统计报告
+        stats_file = os.path.join(output_dir, f"{self.prefix}_formatted_sequences_stats.html")
+        with open(stats_file, 'w') as f:
+            f.write(stats_html)
+        
+        print(f"Saved formatted sequences report to {output_file}")
+        print(f"Saved pattern statistics to {stats_file}")
+
+    def find_complementary_sites(self, sequence, current_site_type, current_pos):
+        """
+        Find potential complementary translation sites.
+        
+        Args:
+            sequence (str): The complete transcript sequence
+            current_site_type (str): 'start' or 'stop' indicating what we're looking for
+            current_pos (int): Position of the current site
+            
+        Returns:
+            list: List of tuples containing (position, codon)
+        """
+        complementary_sites = []
+        seq_len = len(sequence)
+        
+        if current_site_type == 'start':
+            # Looking for stop codons downstream
+            pos = current_pos + 3  # Start after ATG
+            while pos + 2 < seq_len:
+                codon = sequence[pos:pos+3].upper()
+                if codon in ['TAA', 'TAG', 'TGA']:
+                    complementary_sites.append((pos, codon))
+                pos += 3  # Move to next codon
+        else:
+            # Looking for start codons upstream
+            pos = current_pos - 3  # Start before stop codon
+            while pos >= 0:
+                codon = sequence[pos:pos+3].upper()
+                if codon == 'ATG':
+                    complementary_sites.append((pos, codon))
+                pos -= 3  # Move to previous codon
+                
+        return complementary_sites
+        
+    def format_sequence_with_predictions(self, transcript_id):
+        """
+        Format sequence with predictions and find complementary sites.
+        """
+        if transcript_id not in self.data or transcript_id not in self.sequences:
+            return {
+                'transcript_id': transcript_id,
+                'formatted_seq': "",
+                'formatted_seq_with_pos': "",
+                'potential_complementary_sites': ""
+            }
+            
+        predictions = self.data[transcript_id]['predictions']
+        sequence = self.sequences[transcript_id]
+        formatted_parts = []
+        formatted_parts_with_pos = []
+        complementary_sites_parts = []
+        
+        # Store information about found sites
+        found_starts = []
+        found_stops = []
+        
+        i = 0
+        while i < len(predictions):
+            current_pred = predictions[i]
+            
+            if current_pred in [0, 1]:  # TIS or TTS
+                start = i
+                while i < len(predictions) and predictions[i] == current_pred:
+                    i += 1
+                
+                color = 'red' if current_pred == 0 else 'blue'
+                bases = sequence[start:i]
+                
+                if current_pred == 0:  # TIS
+                    found_starts.append((start, bases))
+                else:  # TTS
+                    found_stops.append((start, bases))
+                
+                formatted_parts.append(f'<span style="color:{color}">{bases.upper()}</span>')
+                formatted_parts_with_pos.append(
+                    f'<span style="color:{color}">{bases.upper()}<sub>{start+1}</sub></span>'
+                )
+            else:
+                start = i
+                while i < len(predictions) and predictions[i] == 2:
+                    i += 1
+                
+                gap_length = i - start
+                if gap_length < 4:
+                    bases = sequence[start:i]
+                    formatted_str = f'<span style="color:gray">{bases.lower()}</span>'
+                    formatted_parts.append(formatted_str)
+                    formatted_parts_with_pos.append(formatted_str)
+                else:
+                    formatted_str = f'<span style="color:gray">—</span>'
+                    formatted_parts.append(formatted_str)
+                    formatted_parts_with_pos.append(formatted_str)
+        
+        # Generate complementary sites content
+        if len(found_starts) == 1 and len(found_stops) == 0:
+            # Only TIS found, look for potential stop codons
+            potential_sites = self.find_complementary_sites(sequence, 'start', found_starts[0][0])
+            if potential_sites:
+                sites_formatted = []
+                for pos, codon in potential_sites:
+                    sites_formatted.append(
+                        f'<span style="color:purple">{codon}<sub>{pos+1}</sub></span>'
+                    )
+                complementary_sites_parts = f' — '.join(sites_formatted)
+                
+        elif len(found_stops) == 1 and len(found_starts) == 0:
+            # Only TTS found, look for potential start codons
+            potential_sites = self.find_complementary_sites(sequence, 'stop', found_stops[0][0])
+            if potential_sites:
+                sites_formatted = []
+                for pos, codon in potential_sites:
+                    sites_formatted.append(
+                        f'<span style="color:purple">{codon}<sub>{pos+1}</sub></span>'
+                    )
+                complementary_sites_parts = f' — '.join(sites_formatted)
+        
+        # Return all formatted content
+        return {
+            'transcript_id': transcript_id,
+            'formatted_seq': ''.join(formatted_parts),
+            'formatted_seq_with_pos': ''.join(formatted_parts_with_pos),
+            'complementary_sites': complementary_sites_parts
+        }
+
+    def generate_formatted_sequences_report(self, output_dir):
+        """
+        Generate formatted sequence report with complementary sites.
+        """
+        # Track statistics for patterns
+        pattern_stats = defaultdict(lambda: {'total': 0, 'with_complementary': 0})
+        
+        # Generate main report
+        html_content = """
+        <html>
+        <head>
+            <style>
+                table { border-collapse: collapse; width: 100%; }
+                th, td { padding: 8px; text-align: left; border: 1px solid #ddd; }
+                th { background-color: #f2f2f2; }
+                .sequence { font-family: monospace; }
+            </style>
+        </head>
+        <body>
+            <h2>Formatted Sequence Report</h2>
+            <table>
+                <tr>
+                    <th>Transcript ID</th>
+                    <th>Formatted Sequence</th>
+                    <th>Formatted Sequence with Position</th>
+                    <th>Potential Complementary Sites</th>
+                </tr>
+        """
+        
+        # Process each transcript
+        for transcript_id in sorted(self.data.keys()):
+            result = self.format_sequence_with_predictions(transcript_id)
+            pattern = result['formatted_seq']
+            
+            # Update statistics
+            pattern_stats[pattern]['total'] += 1
+            if result['complementary_sites']:
+                pattern_stats[pattern]['with_complementary'] += 1
+            
+            html_content += f"""
+            <tr>
+                <td>{result['transcript_id']}</td>
+                <td class="sequence">{result['formatted_seq']}</td>
+                <td class="sequence">{result['formatted_seq_with_pos']}</td>
+                <td class="sequence">{result['complementary_sites']}</td>
+            </tr>
+            """
+        
+        html_content += """
+            </table>
+        </body>
+        </html>
+        """
+        
+        # Save main report
+        output_file = os.path.join(output_dir, f"{self.prefix}_formatted_sequences.html")
+        with open(output_file, 'w') as f:
+            f.write(html_content)
+        
+        # Generate statistics report
+        stats_html = f"""
+        <html>
+        <head>
+            <style>
+                table {{ border-collapse: collapse; width: 100%; }}
+                th, td {{ padding: 8px; text-align: left; border: 1px solid #ddd; }}
+                th {{ background-color: #f2f2f2; }}
+                .sequence {{ font-family: monospace; }}
+            </style>
+        </head>
+        <body>
+            <h2>Formatted Sequence Pattern Statistics</h2>
+            <table>
+                <tr>
+                    <th>Formatted Pattern</th>
+                    <th>Count</th>
+                    <th>Count with Potential Complementary Sites</th>
+                </tr>
+        """
+        
+        # Sort patterns by count
+        sorted_patterns = sorted(pattern_stats.items(), 
+                               key=lambda x: x[1]['total'], 
+                               reverse=True)
+        
+        for pattern, stats in sorted_patterns:
+            total = stats['total']
+            with_comp = stats['with_complementary']
+            percentage = (with_comp / total * 100) if total > 0 else 0
+            
+            stats_html += f"""
+            <tr>
+                <td class="sequence">{pattern}</td>
+                <td>{total}</td>
+                <td>{with_comp} ({percentage:.1f}%)</td>
+            </tr>
+            """
+        
+        stats_html += """
+            </table>
+        </body>
+        </html>
+        """
+        
+        # Save statistics report
         stats_file = os.path.join(output_dir, f"{self.prefix}_formatted_sequences_stats.html")
         with open(stats_file, 'w') as f:
             f.write(stats_html)

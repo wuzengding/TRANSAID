@@ -110,7 +110,7 @@ class TRANSAID_Transformer(nn.Module):
 
 
 class PositionalEncoding(nn.Module):
-    def __init__(self, d_model, dropout=0.1, max_len=5049):
+    def __init__(self, d_model,max_len=5049, dropout=0.1):
         super(PositionalEncoding, self).__init__()
         self.dropout = nn.Dropout(p=dropout)
 
@@ -148,12 +148,12 @@ class SelfAttention(nn.Module):
         return x + self.gamma * out
         
 class TRANSAID_Embedding_v2(nn.Module):
-    def __init__(self, embedding_dim=128, output_channels=3):  # 增加embedding维度
+    def __init__(self, embedding_dim=128, output_channels=3, max_len=5049):  # 增加embedding维度
         super().__init__()
-        
+        self.max_len = args.max_len
         # Embedding层
         self.embedding = nn.Embedding(5, embedding_dim, padding_idx=0)
-        self.pos_encoder = PositionalEncoding(embedding_dim)
+        self.pos_encoder = PositionalEncoding(embedding_dim, self.max_len)
         self.emb_dropout = nn.Dropout(0.1)
         
         # 多尺度卷积分支
@@ -503,7 +503,10 @@ def main(args):
     elif args.model_type == 'TRANSAID_Embedding':
         model = TRANSAID_Embedding(embedding_dim=128,output_channels=3).to(device)
     elif args.model_type == "TRANSAID_Embedding_v2":
-        model = TRANSAID_Embedding_v2(embedding_dim=128,output_channels=3).to(device)
+        model = TRANSAID_Embedding_v2(embedding_dim=128,
+                                      output_channels=3, 
+                                      max_len = args.max_len
+                                     ).to(device)
     elif args.model_type == 'TRANSAID_Transformer':
         model = TRANSAID_Transformer(
             num_embeddings=5,

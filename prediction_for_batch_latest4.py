@@ -462,54 +462,80 @@ class SimpleRNN(nn.Module):
         out = self.fc(output)
         return out
         
-def save_predictions(predictions, true_labels, seq_ids, seq_lengths, output_dir, prefix):
+def save_predictions(predictions, true_labels, seq_ids, seq_lengths, results, args):
     """
-    保存预测结果到pkl文件，分为匹配和不匹配两组
+    Save predictions, true labels, and other information to files.
+    
+    Args:
+        predictions: Predicted labels
+        true_labels: True labels
+        seq_ids: Sequence IDs
+        seq_lengths: Sequence lengths
+        results: List of dictionaries containing per-transcript results including probabilities
+        args: Arguments containing output directory and prefix
     """
-    import pickle
-    import numpy as np
-    
-    # 整理数据为字典格式
-    results = []
-    current_idx = 0
-    
-    for seq_id, seq_len in zip(seq_ids, seq_lengths):
-        # 获取当前转录本的预测和真实标签
-        pred = predictions[current_idx:current_idx + seq_len]
-        true = true_labels[current_idx:current_idx + seq_len]
-        
-        # 判断是否完全匹配
-        is_match = np.array_equal(pred, true)
-        
-        # 保存结果
-        results.append({
-            'transcript_id': seq_id,
-            'length': seq_len,
-            'predictions': pred,
-            'true_labels': true,
-            'is_match': is_match
-        })
-        
-        current_idx += seq_len
-    
-    # 分离匹配和不匹配的结果
-    matching = [r for r in results if r['is_match']]
-    non_matching = [r for r in results if not r['is_match']]
-    
-    # 保存结果
-    with open(f'{output_dir}/{prefix}_matching_predictions.pkl', 'wb') as f:
-        pickle.dump(matching, f)
-    with open(f'{output_dir}/{prefix}_non_matching_predictions.pkl', 'wb') as f:
-        pickle.dump(non_matching, f)
-    
-    print(f"Saved {len(matching)} matching and {len(non_matching)} non-matching predictions")
-    
-    # 返回保存的文件路径，方便后续使用
-    return {
-        'matching': f'{output_dir}/{prefix}_matching_predictions.pkl',
-        'non_matching': f'{output_dir}/{prefix}_non_matching_predictions.pkl'
-    }
+    # 创建保存目录
+    os.makedirs(args.output_dir, exist_ok=True)
 
+    # 保存原始的预测结果数据到 pickle 文件
+    predictions_file = os.path.join(args.output_dir, f"{args.prefix}_predictions.pkl")
+    with open(predictions_file, 'wb') as f:
+        pickle.dump(results, f)  # 直接保存包含概率值的完整结果
+    print(f"\nPredictions saved to {predictions_file}")
+
+    # 比较预测和真实标签是否匹配
+    matching = []
+    non_matching = []
+    idx = 0
+    results_idx = 0
+    for seq_id, seq_len in zip(seq_ids, seq_lengths):
+        if not np.array_equal(predictions[idx:idx+seq_len], true_labels[idx:idx+seq_len]):
+            non_matching.append({
+                'transcript_id': seq_id,
+                'predictions': predictions[idx:idx+seq_len],
+                'predictions_probs': results[results_idx]['predictions_probs'],
+                'true_labels': true_labels[idx:idx+seq_len],
+                'length': seq_len,
+                'is_match': False
+            })
+        else:
+            non_matching.append({
+                'transcript_id': seq_id,
+                'predictions': predictions[idx:idx+seq_len],
+                'predictions_probs': results[results_idx]['predictions_probs'],
+                'true_labels': true_labels[idx:idx+seq_len],
+                'length': seq_len,
+                'is_match': False
+            })
+        results_idx += 1
+        idx += seq_len
+
+    # 保存匹配的预测结果
+    if matching:
+        matching_file = os.path.join(args.output_dir, 
+                                   f"{args.prefix}_matching_predictions.pkl")
+        with open(matching_file, 'wb') as f:
+            pickle.dump(matching, f)
+        print(f"Matching predictions saved to {matching_file}")
+        
+    # 保存不匹配的预测结果
+    if non_matching:
+        non_matching_file = os.path.join(args.output_dir, 
+                                       f"{args.prefix}_non_matching_predictions.pkl")
+        with open(non_matching_file, 'wb') as f:
+            pickle.dump(non_matching, f)
+        print(f"Non-matching predictions saved to {non_matching_file}")
+
+    # 输出统计信息
+    total = len(seq_ids)
+    matching_count = len(matching)
+    non_matching_count = len(non_matching)
+    print(f"\nStatistics:")
+    print(f"Total transcripts: {total}")
+    print(f"Matching transcripts: {total - non_matching_count}")
+    print(f"Non-matching transcripts: {non_matching_count}")
+    print(f"Accuracy: {(total - non_matching_count) / total * 100:.2f}%")
+    
 def plot_confusion_matrix(y_true, y_pred, outdir, prefix):
     #y_pred = np.argmax(y_pred, axis=1)
     cm = confusion_matrix(y_true, y_pred)
@@ -560,9 +586,11 @@ def plot_confusion_matrix(y_true, y_pred, outdir, prefix):
 def predict(model, loader, device, output_dir):
     model.eval()
     predictions = []
+    predictions_probs = []
     true_labels = []
     seq_ids = []
     seq_lengths = []
+    prediction_scores = [] 
 
 
     with torch.no_grad():
@@ -579,6 +607,11 @@ def predict(model, loader, device, output_dir):
             
             #print("outputs", outputs.shape)
             outputs = outputs.reshape(-1, outputs.size(-1))  # (batch_size * seq_len, num_classes)
+
+            # 获取预测概率值
+            prob_scores = F.softmax(outputs, dim=1)  # 使用 softmax 获取概率
+            #scores = scores.max(dim=1)[0]  # 获取最大概率值
+            
             outputs = outputs.argmax(dim=1) ## for debug
             #print("outputs", outputs.shape)
             
@@ -597,12 +630,14 @@ def predict(model, loader, device, output_dir):
             #print("valid_mask:", len(valid_mask))
             #print("outputs1", outputs.shape)
             #print("yshape1", y.shape)
+            prob_scores = prob_scores[valid_mask]
             outputs = outputs[valid_mask]
             y = y[valid_mask]
             
             #print("outputs2", outputs.shape)
             #print("yshape2", y.shape)
             predictions.append(outputs.cpu().numpy())
+            predictions_probs.append(prob_scores.cpu().numpy())  # 保存完整的三维概率向量
             true_labels.append(y.cpu().numpy())
             seq_ids.append(np.array(list(seq_id)))
             seq_lengths.append(np.array(list(seq_len)))
@@ -622,11 +657,34 @@ def predict(model, loader, device, output_dir):
             input()
             '''
     predictions = np.concatenate(predictions, axis=0)
+    predictions_probs = np.concatenate(predictions_probs, axis=0)  # 合并概率值
     true_labels = np.concatenate(true_labels, axis=0)
     seq_ids = np.concatenate(seq_ids, axis=0)
     seq_lengths = np.concatenate(seq_lengths, axis=0)
     
-    return predictions, true_labels, seq_ids, seq_lengths
+    # 整理每个转录本的结果
+    idx = 0
+    results = []
+    for i, (seq_id, seq_len) in enumerate(zip(seq_ids, seq_lengths)):
+        pred_slice = predictions[idx:idx + seq_len]
+        prob_slice = predictions_probs[idx:idx + seq_len]
+        #print(f"seq_id: {seq_id}")
+        #print(f"seq_len: {seq_len}")
+        #print(f"prediction slice length: {len(pred_slice)}")
+        #print(f"probability slice length: {len(prob_slice)}")
+        #print(f"probability slice : {prob_slice}")
+        results.append({
+            'transcript_id': seq_id,
+            'predictions': predictions[idx:idx + seq_len],
+            'predictions_probs': predictions_probs[idx:idx + seq_len],  # 添加概率值
+            'true_labels': true_labels[idx:idx + seq_len],
+            'length': seq_len,
+            'is_match': np.array_equal(predictions[idx:idx + seq_len], 
+                                     true_labels[idx:idx + seq_len])
+        })
+        idx += seq_len
+        
+    return predictions, true_labels, seq_ids, seq_lengths,results
 
 
 def calculate_metrics(y_true, y_pred, output_dir, prefix):
@@ -765,589 +823,6 @@ def classify_transcript_predictions(true_labels, predictions, seq_ids, seq_lengt
         idx += seq_len
     return results, total_transcripts
 
-class PositionAnalyzer:
-    def __init__(self):
-        self.position_stats = defaultdict(list)
-    
-    def analyze_single_transcript(self, predictions: np.ndarray, seq_id: str, seq_len: int) -> Dict:
-        """
-        Analyze TIS/TTS predictions distribution in a single transcript
-        """
-        # Initialize empty value for positions if not found
-        tis_relative_positions = np.array([])
-        tts_relative_positions = np.array([])
-        
-        # Find TIS and TTS positions
-        tis_positions = np.where(predictions == 0)[0]
-        tts_positions = np.where(predictions == 1)[0]
-        
-        # Basic statistics dictionary
-        stats = {
-            'transcript_id': seq_id,
-            'transcript_type': seq_id.split('_')[0],
-            'length': seq_len,
-            'tis_count': len(tis_positions),
-            'tts_count': len(tts_positions),
-            'tis_density': len(tis_positions)/seq_len if seq_len > 0 else 0,
-            'tts_density': len(tts_positions)/seq_len if seq_len > 0 else 0,
-            'tis_mean_position': 0,
-            'tts_mean_position': 0,
-            'tis_std_position': 0,
-            'tts_std_position': 0,
-            'tis_relative_positions': tis_relative_positions,
-            'tts_relative_positions': tts_relative_positions,
-        }
-        
-        # Calculate position statistics if sites exist
-        if len(tis_positions) > 0:
-            stats['tis_relative_positions'] = tis_positions / seq_len
-            stats['tis_mean_position'] = np.mean(tis_positions) / seq_len
-            stats['tis_std_position'] = np.std(tis_positions) / seq_len if len(tis_positions) > 1 else 0
-        
-        if len(tts_positions) > 0:
-            stats['tts_relative_positions'] = tts_positions / seq_len
-            stats['tts_mean_position'] = np.mean(tts_positions) / seq_len
-            stats['tts_std_position'] = np.std(tts_positions) / seq_len if len(tts_positions) > 1 else 0
-        
-        # Analyze distances between sites if multiple sites exist
-        if len(tis_positions) > 1:
-            tis_distances = np.diff(tis_positions)
-            stats['tis_min_distance'] = np.min(tis_distances)
-            stats['tis_mean_distance'] = np.mean(tis_distances)
-        else:
-            stats['tis_min_distance'] = 0
-            stats['tis_mean_distance'] = 0
-        
-        if len(tts_positions) > 1:
-            tts_distances = np.diff(tts_positions)
-            stats['tts_min_distance'] = np.min(tts_distances)
-            stats['tts_mean_distance'] = np.mean(tts_distances)
-        else:
-            stats['tts_min_distance'] = 0
-            stats['tts_mean_distance'] = 0
-            
-        # Add debug information
-        print(f"Processing transcript {seq_id} with length {seq_len}")
-        
-        # Store all statistics
-        for key, value in stats.items():
-            if key not in self.position_stats:
-                self.position_stats[key] = []
-            self.position_stats[key].append(value)
-            
-        #print(f"Current stats length: {len(self.position_stats['transcript_type'])}")
-        #print(f"Current tis_mean_position length: {len(self.position_stats['tis_mean_position'])}")
-        
-        return stats
-    
-    def plot_position_distributions(self, output_dir: str, prefix: str):
-        """
-        Generate visualization plots for position distributions
-        """
-        # 1. Density Plot of TIS/TTS relative positions
-        plt.figure(figsize=(12, 6))
-        for transcript_type in ['NM', 'NR', 'XM', 'XR']:
-            # 获取特定类型的所有位置数据
-            type_indices = [i for i, t in enumerate(self.position_stats['transcript_type']) 
-                           if t == transcript_type]
-        
-            if not type_indices:  # 如果没有这种类型的转录本，跳过
-                continue
-            
-            # TIS positions - 收集所有位置
-            tis_positions = []
-            for idx in type_indices:
-                if idx < len(self.position_stats['tis_relative_positions']):
-                    pos_array = self.position_stats['tis_relative_positions'][idx]
-                    if isinstance(pos_array, np.ndarray):
-                        tis_positions.extend(pos_array.tolist())
-        
-            # TTS positions - 收集所有位置
-            tts_positions = []
-            for idx in type_indices:
-                if idx < len(self.position_stats['tts_relative_positions']):
-                    pos_array = self.position_stats['tts_relative_positions'][idx]
-                    if isinstance(pos_array, np.ndarray):
-                        tts_positions.extend(pos_array.tolist())
-        
-            # 绘制密度图
-            if tis_positions:
-                sns.kdeplot(data=tis_positions, label=f'{transcript_type} TIS', linestyle='--')
-            if tts_positions:
-                sns.kdeplot(data=tts_positions, label=f'{transcript_type} TTS', linestyle='-')
-    
-        plt.xlabel('Relative Position in Transcript')
-        plt.ylabel('Density')
-        plt.title(f'{prefix} Distribution of TIS/TTS Positions')
-        plt.legend()
-        plt.savefig(os.path.join(output_dir, f"{prefix}_position_distribution.png"))
-        plt.close()
-    
-        # 2. Count Distribution
-# Count Distribution - All in one figure
-        fig = plt.figure(figsize=(20, 10))
-        
-        # 创建网格布局 2x2
-        gs = fig.add_gridspec(2, 2, hspace=0.3, wspace=0.2)
-        
-        # TIS counts for NM and NR
-        ax1 = fig.add_subplot(gs[0, 0])
-        for transcript_type in ['NM', 'NR']:
-            type_indices = [i for i, t in enumerate(self.position_stats['transcript_type']) 
-                          if t == transcript_type]
-            if not type_indices:
-                continue
-        
-            counts = [self.position_stats['tis_count'][i] for i in type_indices]
-            if counts:  # 确保有数据才画图
-                sns.histplot(data=counts, label=transcript_type, ax=ax1, alpha=0.5)
-    
-        ax1.set_title('Distribution of TIS Counts (NM & NR)')
-        ax1.set_xlabel('Number of TIS')
-        ax1.set_ylabel('Frequency')
-        ax1.legend()
-        
-        # TIS counts for XM and XR
-        ax2 = fig.add_subplot(gs[0, 1])
-        for transcript_type in ['XM', 'XR']:
-            type_indices = [i for i, t in enumerate(self.position_stats['transcript_type']) 
-                          if t == transcript_type]
-            if not type_indices:
-                continue
-        
-            counts = [self.position_stats['tis_count'][i] for i in type_indices]
-            if counts:  # 确保有数据才画图
-                sns.histplot(data=counts, label=transcript_type, ax=ax2, alpha=0.5)
-    
-        ax2.set_title('Distribution of TIS Counts (XM & XR)')
-        ax2.set_xlabel('Number of TIS')
-        ax2.set_ylabel('Frequency')
-        ax2.legend()
-        
-        # TTS counts for NM and NR
-        ax3 = fig.add_subplot(gs[1, 0])
-        for transcript_type in ['NM', 'NR']:
-            type_indices = [i for i, t in enumerate(self.position_stats['transcript_type']) 
-                          if t == transcript_type]
-            if not type_indices:
-                continue
-        
-            counts = [self.position_stats['tts_count'][i] for i in type_indices]
-            if counts:  # 确保有数据才画图
-                sns.histplot(data=counts, label=transcript_type, ax=ax3, alpha=0.5)
-    
-        ax3.set_title('Distribution of TTS Counts (NM & NR)')
-        ax3.set_xlabel('Number of TTS')
-        ax3.set_ylabel('Frequency')
-        ax3.legend()
-        
-        # TTS counts for XM and XR
-        ax4 = fig.add_subplot(gs[1, 1])
-        for transcript_type in ['XM', 'XR']:
-            type_indices = [i for i, t in enumerate(self.position_stats['transcript_type']) 
-                          if t == transcript_type]
-            if not type_indices:
-                continue
-        
-            counts = [self.position_stats['tts_count'][i] for i in type_indices]
-            if counts:  # 确保有数据才画图
-                sns.histplot(data=counts, label=transcript_type, ax=ax4, alpha=0.5)
-    
-        ax4.set_title('Distribution of TTS Counts (XM & XR)')
-        ax4.set_xlabel('Number of TTS')
-        ax4.set_ylabel('Frequency')
-        ax4.legend()
-        
-        # 添加总标题
-        fig.suptitle(f'{prefix} Distribution of TIS/TTS Counts per Transcript Type', fontsize=16)
-        plt.savefig(os.path.join(output_dir, f"{prefix}_count_distribution.png"))
-        plt.close()
-
-    def print_summary_statistics(self):
-        """Print summary statistics for each transcript type"""
-        #print(f"Total transcripts in stats: {len(self.position_stats['transcript_type'])}")
-        #print(f"Total positions stats: {len(self.position_stats['tis_mean_position'])}")
-        for transcript_type in ['NM', 'NR', 'XM', 'XR']:
-            type_mask = np.array(self.position_stats['transcript_type']) == transcript_type
-            if not any(type_mask):
-                continue
-                
-            print(f"\nSummary Statistics for {transcript_type}:")
-            print("----------------------------------------")
-            print(f"Number of transcripts: {sum(type_mask)}")
-            
-            # TIS statistics
-            tis_counts = np.array(self.position_stats['tis_count'])[type_mask]
-            print("\nTIS Statistics:")
-            print(f"Average TIS per transcript: {np.mean(tis_counts):.2f}")
-            print(f"Median TIS per transcript: {np.median(tis_counts):.2f}")
-            print(f"Std TIS per transcript: {np.std(tis_counts):.2f}")
-            
-            # TTS statistics
-            tts_counts = np.array(self.position_stats['tts_count'])[type_mask]
-            print("\nTTS Statistics:")
-            print(f"Average TTS per transcript: {np.mean(tts_counts):.2f}")
-            print(f"Median TTS per transcript: {np.median(tts_counts):.2f}")
-            print(f"Std TTS per transcript: {np.std(tts_counts):.2f}")
-            
-            # Position statistics
-            if sum(type_mask) > 0:
-                tis_mean_positions = [p for p in np.array(self.position_stats['tis_mean_position'])[type_mask] if not isinstance(p, list)]
-                tts_mean_positions = [p for p in np.array(self.position_stats['tts_mean_position'])[type_mask] if not isinstance(p, list)]
-                
-                if tis_mean_positions:
-                    print("\nPosition Statistics:")
-                    print(f"Average TIS relative position: {np.mean(tis_mean_positions):.3f}")
-                if tts_mean_positions:
-                    print(f"Average TTS relative position: {np.mean(tts_mean_positions):.3f}")
-
-class SiteAnalyzer:
-    def __init__(self):
-        """Initialize the analyzer with storage for various statistics"""
-        self.stats = defaultdict(list)
-        self.codon_map = {
-            'ATG': 'START',
-            'TAA': 'STOP',
-            'TAG': 'STOP',
-            'TGA': 'STOP'
-        }
-    
-    def analyze_transcript(self, 
-                         sequence: str,
-                         predictions: np.ndarray,
-                         transcript_id: str) -> Dict:
-        """
-        Analyze a single transcript's TIS/TTS predictions
-        
-        Args:
-            sequence: Original RNA sequence
-            predictions: Model predictions (0=TIS, 1=TTS, 2=Non-TIS/TTS)
-            transcript_id: Transcript identifier
-        """
-        # Get transcript type (NM/NR)
-        trans_type = transcript_id.split('_')[0]
-        
-        # Find all predicted sites
-        tis_positions = np.where(predictions == 0)[0]
-        tts_positions = np.where(predictions == 1)[0]
-        
-        # Analyze continuity
-        tis_stats = self._analyze_site_continuity(tis_positions, 'TIS')
-        tts_stats = self._analyze_site_continuity(tts_positions, 'TTS')
-        
-        # Analyze potential codons
-        tis_codon_stats = self._analyze_codons(sequence, tis_positions, 'TIS')
-        tts_codon_stats = self._analyze_codons(sequence, tts_positions, 'TTS')
-        
-        # Combine statistics
-        stats = {
-            'transcript_id': transcript_id,
-            'transcript_type': trans_type,
-            'length': len(sequence),
-            **tis_stats,
-            **tts_stats,
-            **tis_codon_stats,
-            **tts_codon_stats
-        }
-        
-        # Store all statistics
-        for key, value in stats.items():
-            self.stats[key].append(value)
-        
-        return stats
-    
-    def _analyze_site_continuity(self, positions: np.ndarray, site_type: str) -> Dict:
-        """
-        Analyze the continuity of predicted sites
-        """
-        if len(positions) < 1:
-            return {
-                f'{site_type}_count': 0,
-                f'{site_type}_gaps': [],
-                f'{site_type}_continuous_lengths': [],
-                f'{site_type}_mean_gap': 0,
-                f'{site_type}_gap_std': 0,
-                f'{site_type}_mean_continuous_length': 0
-            }
-        
-        # Calculate gaps between positions
-        gaps = np.diff(positions)
-        
-        # Find continuous regions (gap = 1)
-        continuous_regions = np.split(positions, np.where(gaps > 1)[0] + 1)
-        continuous_lengths = [len(region) for region in continuous_regions]
-        
-        return {
-            f'{site_type}_count': len(positions),
-            f'{site_type}_gaps': gaps.tolist(),
-            f'{site_type}_continuous_lengths': continuous_lengths,
-            f'{site_type}_mean_gap': np.mean(gaps) if len(gaps) > 0 else 0,
-            f'{site_type}_gap_std': np.std(gaps) if len(gaps) > 0 else 0,
-            f'{site_type}_mean_continuous_length': np.mean(continuous_lengths)
-        }
-    
-    def _analyze_codons(self, sequence: str, positions: np.ndarray, site_type: str) -> Dict:
-        """
-        Analyze codon sequences at predicted sites
-        """
-        valid_codons = []
-        kozak_scores = []
-        
-        for pos in positions:
-            if pos + 2 < len(sequence):
-                codon = sequence[pos:pos+3]
-                valid_codons.append(self.codon_map.get(codon, 'INVALID'))
-                
-                # For TIS sites, calculate Kozak score
-                if site_type == 'TIS' and pos >= 3 and pos + 4 < len(sequence):
-                    kozak = sequence[pos-3:pos+4]
-                    kozak_scores.append(self._calculate_kozak_score(kozak))
-        
-        return {
-            f'{site_type}_valid_codon_ratio': sum(1 for c in valid_codons if c != 'INVALID') / len(valid_codons) if valid_codons else 0,
-            f'{site_type}_kozak_score': np.mean(kozak_scores) if kozak_scores else 0
-        }
-    
-    def _calculate_kozak_score(self, kozak_seq: str) -> float:
-        """
-        Calculate Kozak sequence score
-        Perfect Kozak: (GCC)GCCACC|ATG|G
-        """
-        if len(kozak_seq) != 7:
-            return 0.0
-            
-        score = 0.0
-        # Check -3 position (high importance)
-        if kozak_seq[3] in 'AG':
-            score += 0.4
-        
-        # Check +4 position (high importance)
-        if kozak_seq[6] in 'G':
-            score += 0.4
-        
-        # Check other positions
-        for i, base in enumerate(kozak_seq[:3]):
-            if base in 'GC':
-                score += 0.067  # (0.2 distributed over 3 positions)
-                
-        return score
-    
-    def plot_continuity_statistics(self, output_dir: str, prefix: str):
-        """
-        Plot various continuity statistics
-        """
-        # 1. Gap Distribution Plot
-        plt.figure(figsize=(12, 6))
-        for trans_type in ['NM', 'NR']:
-            type_indices = [i for i, t in enumerate(self.stats['transcript_type']) 
-                           if t == trans_type]
-        
-            if not type_indices:  # 如果没有这种类型的转录本，跳过
-                continue
-            
-            # Collect all gaps for TIS
-            tis_gaps = []
-            for idx in type_indices:
-                if idx < len(self.stats['TIS_gaps']):
-                    gaps = self.stats['TIS_gaps'][idx]
-                    if isinstance(gaps, list):
-                        tis_gaps.extend(gaps)
-        
-            # Collect all gaps for TTS
-            tts_gaps = []
-            for idx in type_indices:
-                if idx < len(self.stats['TTS_gaps']):
-                    gaps = self.stats['TTS_gaps'][idx]
-                    if isinstance(gaps, list):
-                        tts_gaps.extend(gaps)
-        
-            # Plot distributions if we have data
-            if tis_gaps:
-                sns.kdeplot(data=tis_gaps, 
-                       label=f'{trans_type} TIS gaps', 
-                       linestyle='--')
-            if tts_gaps:
-                sns.kdeplot(data=tts_gaps, 
-                       label=f'{trans_type} TTS gaps', 
-                       linestyle='-')
-    
-        plt.xlabel('Gap Size')
-        plt.ylabel('Density')
-        plt.xlim(-100,100)
-        plt.title(f'{prefix} Distribution of Gaps Between Predicted Sites')
-        plt.legend()
-        plt.savefig(f'{output_dir}/{prefix}_gap_distribution.png')
-        plt.close()
-    
-# 2. Continuous Length Distribution - TIS
-        plt.figure(figsize=(12, 6))
-        for trans_type in ['NM', 'NR']:
-            type_indices = [i for i, t in enumerate(self.stats['transcript_type']) 
-                           if t == trans_type]
-            
-            if not type_indices:
-                continue
-            
-            # Collect TIS lengths
-            tis_lengths = []
-            for idx in type_indices:
-                if idx < len(self.stats['TIS_continuous_lengths']):
-                    lengths = self.stats['TIS_continuous_lengths'][idx]
-                    if isinstance(lengths, list):
-                        tis_lengths.extend(lengths)
-            
-            # Plot TIS distribution
-            if tis_lengths:
-                sns.histplot(data=tis_lengths, 
-                           label=f'{trans_type} TIS', 
-                           alpha=0.5,
-                           binwidth=1,
-                           stat='probability')
-        
-        plt.xlabel('Continuous Region Length')
-        plt.ylabel('Probability')
-        plt.title(f'{prefix} Distribution of TIS Continuous Prediction Lengths')
-        plt.legend()
-        plt.savefig(f'{output_dir}/{prefix}_TIS_continuous_length_distribution.png')
-        plt.close()
-
-        # 3. Continuous Length Distribution - TTS
-        plt.figure(figsize=(12, 6))
-        for trans_type in ['NM', 'NR']:
-            type_indices = [i for i, t in enumerate(self.stats['transcript_type']) 
-                           if t == trans_type]
-            
-            if not type_indices:
-                continue
-            
-            # Collect TTS lengths
-            tts_lengths = []
-            for idx in type_indices:
-                if idx < len(self.stats['TTS_continuous_lengths']):
-                    lengths = self.stats['TTS_continuous_lengths'][idx]
-                    if isinstance(lengths, list):
-                        tts_lengths.extend(lengths)
-            
-            # Plot TTS distribution
-            if tts_lengths:
-                sns.histplot(data=tts_lengths, 
-                           label=f'{trans_type} TTS', 
-                           alpha=0.5,
-                           binwidth=1,
-                           stat='probability')
-        
-        plt.xlabel('Continuous Region Length')
-        plt.ylabel('Probability')
-        plt.title(f'{prefix} Distribution of TTS Continuous Prediction Lengths')
-        plt.legend()
-        plt.savefig(f'{output_dir}/{prefix}_TTS_continuous_length_distribution.png')
-        plt.close()
-    
-    def print_summary_statistics(self):
-        """Print summary statistics by transcript type"""
-        for trans_type in ['NM', 'NR']:
-            type_indices = [i for i, t in enumerate(self.stats['transcript_type']) 
-                           if t == trans_type]
-        
-            if not type_indices:
-                continue
-            
-            print(f"\nSummary Statistics for {trans_type}:")
-            print("-" * 50)
-        
-            # TIS Statistics
-            tis_counts = [self.stats['TIS_count'][i] for i in type_indices]
-            print(f"\nTIS Statistics:")
-            print(f"Average sites per transcript: {np.mean(tis_counts):.2f}")
-        
-            # Get all continuous lengths for TIS
-            all_tis_lengths = []
-            for idx in type_indices:
-                if idx < len(self.stats['TIS_continuous_lengths']):
-                    lengths = self.stats['TIS_continuous_lengths'][idx]
-                    if isinstance(lengths, list):
-                        all_tis_lengths.extend(lengths)
-        
-            if all_tis_lengths:
-                print(f"Median continuous length: {np.median(all_tis_lengths):.2f}")
-                print(f"Mean continuous length: {np.mean(all_tis_lengths):.2f}")
-                print(f"Max continuous length: {np.max(all_tis_lengths):.2f}")
-        
-            # Codon statistics
-            if self.stats.get('TIS_valid_codon_ratio'):
-                valid_codon_ratios = [self.stats['TIS_valid_codon_ratio'][i] 
-                                    for i in type_indices]
-                print(f"Valid codon ratio: {np.mean(valid_codon_ratios):.2f}")
-        
-            if trans_type == 'NM' and self.stats.get('TIS_kozak_score'):
-                kozak_scores = [self.stats['TIS_kozak_score'][i] 
-                              for i in type_indices]
-                print(f"Average Kozak score: {np.mean(kozak_scores):.2f}")
-        
-            # TTS Statistics
-            tts_counts = [self.stats['TTS_count'][i] for i in type_indices]
-            print(f"\nTTS Statistics:")
-            print(f"Average sites per transcript: {np.mean(tts_counts):.2f}")
-        
-            # Get all continuous lengths for TTS
-            all_tts_lengths = []
-            for idx in type_indices:
-                if idx < len(self.stats['TTS_continuous_lengths']):
-                    lengths = self.stats['TTS_continuous_lengths'][idx]
-                    if isinstance(lengths, list):
-                        all_tts_lengths.extend(lengths)
-        
-            if all_tts_lengths:
-                print(f"Median continuous length: {np.median(all_tts_lengths):.2f}")
-                print(f"Mean continuous length: {np.mean(all_tts_lengths):.2f}")
-                print(f"Max continuous length: {np.max(all_tts_lengths):.2f}")
-        
-            if self.stats.get('TTS_valid_codon_ratio'):
-                valid_codon_ratios = [self.stats['TTS_valid_codon_ratio'][i] 
-                                    for i in type_indices]
-                print(f"Valid codon ratio: {np.mean(valid_codon_ratios):.2f}")
-
-def analyze_transcripts(sequences: Dict[str, str], 
-                       predictions: Dict[str, np.ndarray],
-                       output_dir: str,
-                       prefix: str) -> SiteAnalyzer:
-    """
-    Analyze multiple transcripts
-    """
-    analyzer = SiteAnalyzer()
-    
-    for transcript_id in sequences:
-        if transcript_id in predictions:
-            analyzer.analyze_transcript(
-                sequences[transcript_id],
-                predictions[transcript_id],
-                transcript_id
-            )
-    
-    analyzer.plot_continuity_statistics(output_dir, prefix)
-    analyzer.print_summary_statistics()
-    
-    return analyzer
-
-def analyze_predictions(predictions: np.ndarray, seq_ids: np.ndarray, 
-                      seq_lengths: np.ndarray, output_dir: str, prefix: str) -> PositionAnalyzer:
-    """
-    Analyze predictions for all transcripts
-    """
-    analyzer = PositionAnalyzer()
-    
-    current_pos = 0
-    for i, (seq_id, seq_len) in enumerate(zip(seq_ids, seq_lengths)):
-        # Get predictions for current transcript
-        transcript_predictions = predictions[current_pos:current_pos + seq_len]
-        analyzer.analyze_single_transcript(transcript_predictions, seq_id, seq_len)
-        current_pos += seq_len
-    
-    analyzer.plot_position_distributions(output_dir, prefix)
-    analyzer.print_summary_statistics()
-    
-    return analyzer
-
 # Plot Transcript Performance
 def plot_transcript_performance(results, total, output_dir, prefix):
     labels = [f'group{i+1}' for i in range(len(results.keys()))]
@@ -1415,47 +890,10 @@ def main(args):
     model.load_state_dict(torch.load(args.model_path, map_location=device))
     
     # Run predictions
-    predictions, true_labels, seq_ids, seq_lengths = predict(model, test_loader, device, args.output_dir)
+    predictions, true_labels, seq_ids, seq_lengths, results = predict(model, test_loader, device, args.output_dir)
 
-    '''
-    true_labels_str = np.array2string(true_labels, separator=',')
-    predictions_str = np.array2string(predictions, separator=',')
-    with open(os.path.join(args.data_dir, "results.txt"), "w") as f:
-        np.savetxt(f, true_labels, fmt='%d', header='True Labels', comments='')
-        f.write('\n')  # Add a newline for separation
-        np.savetxt(f, predictions, fmt='%d', header='Predictions', comments='')
-    
-    print("true_labels",true_labels)
-    print("predictions",predictions)
-    '''
-    result_files = save_predictions(predictions, true_labels, seq_ids, seq_lengths, 
-                                  args.output_dir, args.prefix)
-    '''
-    # 添加位置分析
-    print("\nAnalyzing TIS/TTS position distributions...")
-    position_analyzer = analyze_predictions(predictions, seq_ids, seq_lengths, 
-                                         args.output_dir, args.prefix)
-    # Add site analysis
-    print("\nAnalyzing TIS/TTS sites distribution...")
-    
-    # 准备预测数据
-    transcript_predictions = {}
-    current_pos = 0
-    for seq_id, seq_len in zip(seq_ids, seq_lengths):
-        transcript_predictions[seq_id] = predictions[current_pos:current_pos + seq_len]
-        current_pos += seq_len
-    
-    # 加载FASTA序列
-    sequences = load_sequences_from_fasta(args.fasta_file)
-    
-    # 运行站点分析
-    site_analyzer = analyze_transcripts(
-        sequences=sequences,
-        predictions=transcript_predictions,
-        output_dir=args.output_dir,
-        prefix=f"{args.prefix}"
-    )
-    '''
+    save_predictions(predictions, true_labels, seq_ids, seq_lengths, results, args)
+
     # Calculate metrics
     calculate_metrics(true_labels, predictions, args.output_dir, args.prefix)
     
