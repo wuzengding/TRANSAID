@@ -489,6 +489,10 @@ def save_predictions(predictions, true_labels, seq_ids, seq_lengths, results, ar
     idx = 0
     results_idx = 0
     for seq_id, seq_len in zip(seq_ids, seq_lengths):
+        # 添加调试打印
+        print(f"Processing seq_id: {seq_id}, results_idx: {results_idx}")
+        print(f"Results keys at index {results_idx}: {results[results_idx].keys()}")
+        
         if not np.array_equal(predictions[idx:idx+seq_len], true_labels[idx:idx+seq_len]):
             non_matching.append({
                 'transcript_id': seq_id,
@@ -499,19 +503,24 @@ def save_predictions(predictions, true_labels, seq_ids, seq_lengths, results, ar
                 'is_match': False
             })
         else:
-            non_matching.append({
+            matching.append({
                 'transcript_id': seq_id,
                 'predictions': predictions[idx:idx+seq_len],
-                'predictions_probs': results[results_idx]['predictions_probs'],
+                'predictions_probs': results[results_idx]['predictions_probs'], 
                 'true_labels': true_labels[idx:idx+seq_len],
                 'length': seq_len,
-                'is_match': False
+                'is_match': True
             })
         results_idx += 1
         idx += seq_len
 
     # 保存匹配的预测结果
     if matching:
+        # 添加调试打印
+        print(f"\nVerifying matching predictions before saving:")
+        print(f"Number of matching records: {len(matching)}")
+        print(f"First matching record keys: {matching[0].keys()}")
+        print(f"First matching predictions_probs shape: {matching[0]['predictions_probs'].shape}")
         matching_file = os.path.join(args.output_dir, 
                                    f"{args.prefix}_matching_predictions.pkl")
         with open(matching_file, 'wb') as f:
