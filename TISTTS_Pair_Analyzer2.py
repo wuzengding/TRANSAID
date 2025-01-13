@@ -515,11 +515,13 @@ class TranscriptPairAnalyzer:
             'gc_score',
             'cds_length',
             'final_score',
-            'filter_status'
+            'filter_status',
+            'true_tis',
+            'true_tts'
         ]
         
         # wrong文件的额外列
-        wrong_headers = headers + ['True_TIS', 'True_TTS', 'wrong_reason']
+        wrong_headers = headers + ['wrong_reason']
         
         # 初始化统计计数
         total_transcripts = len(self.predictions)
@@ -573,7 +575,7 @@ class TranscriptPairAnalyzer:
                     
                     # 检查是否应该记录到wrong文件
                     if true_tis is not None or true_tts is not None:
-                        wrong_row = {**row, 'True_TIS': true_tis, 'True_TTS': true_tts, 
+                        wrong_row = {**row, 'true_tis': true_tis, 'true_tts': true_tts, 
                                    'wrong_reason': 'missing_prediction'}
                         writer_wrong.writerow(wrong_row)
                         prediction_stats['missing_prediction'] += 1
@@ -607,7 +609,9 @@ class TranscriptPairAnalyzer:
                         'gc_score': self.scorer.calculate_gc_score(cds),
                         'cds_length': len(cds),
                         'final_score': score,
-                        'filter_status': status
+                        'filter_status': status,
+                        'true_tis': true_tis,
+                        'true_tts': true_tts
                     }
                     all_rows.append(row)
                     writer_all.writerow(row)
@@ -640,8 +644,6 @@ class TranscriptPairAnalyzer:
                 if is_wrong:
                     for row in all_rows:
                         wrong_row = {**row, 
-                                   'True_TIS': true_tis,
-                                   'True_TTS': true_tts,
                                    'wrong_reason': wrong_reason}
                         writer_wrong.writerow(wrong_row)
                 else:

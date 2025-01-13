@@ -258,9 +258,9 @@ def plot_confusion_matrix(y_true, y_pred, outdir, prefix):
     )
     plt.figtext(0.5, 0.02, note_text, wrap=True, horizontalalignment='center', fontsize=10)
 
-    plt.savefig(os.path.join(outdir, f"{prefix}_confusion_matrix_in_Base_level.png"))
+    plt.savefig(os.path.join(outdir, f"{prefix}_confusion_matrix_in_Base_level.pdf"))
     plt.show()
-    print(f"Confusion matrix saved to {outdir}/{prefix}_confusion_matrix_in_Base_level.png")
+    print(f"Confusion matrix saved to {outdir}/{prefix}_confusion_matrix_in_Base_level.pdf")
 
 
 
@@ -399,9 +399,9 @@ def plot_metrics_matrix(precision, recall, f1, precision_macro, recall_macro, f1
     )
     plt.figtext(0.5, 0.02, formula_text, wrap=True, horizontalalignment='center', fontsize=10)
 
-    plt.savefig(f"{output_dir}/{prefix}_performance_matrix_in_Base_level.png")
+    plt.savefig(f"{output_dir}/{prefix}_performance_matrix_in_Base_level.pdf")
     plt.show()
-    print(f"Metrics matrix saved to {output_dir}/{prefix}_performance_matrix_in_Base_level.png")
+    print(f"Metrics matrix saved to {output_dir}/{prefix}_performance_matrix_in_Base_level.pdf")
 
 
 # Classify Transcript Predictions
@@ -485,9 +485,9 @@ def plot_transcript_performance(results, total, output_dir, prefix):
     plt.grid(axis='y', linestyle='--', alpha=0.7)
     plt.legend(bars, [f'{a}:{b}' for a,b in zip(labels, descriptions)] , loc='upper right')  
     plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, f"{prefix}_triplet_performance.png"))
+    plt.savefig(os.path.join(output_dir, f"{prefix}_triplet_performance.pdf"))
     plt.show()
-    print(f"Transcript performance plot saved to {output_dir}/{prefix}_transcript_performance.png")
+    print(f"Transcript performance plot saved to {output_dir}/{prefix}_transcript_performance.pdf")
 
 
 def main(args):

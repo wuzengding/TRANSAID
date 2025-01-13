@@ -489,9 +489,9 @@ def save_predictions(predictions, true_labels, seq_ids, seq_lengths, results, ar
     idx = 0
     results_idx = 0
     for seq_id, seq_len in zip(seq_ids, seq_lengths):
-        # 添加调试打印
-        print(f"Processing seq_id: {seq_id}, results_idx: {results_idx}")
-        print(f"Results keys at index {results_idx}: {results[results_idx].keys()}")
+        ## 添加调试打印
+        #print(f"Processing seq_id: {seq_id}, results_idx: {results_idx}")
+        #print(f"Results keys at index {results_idx}: {results[results_idx].keys()}")
         
         if not np.array_equal(predictions[idx:idx+seq_len], true_labels[idx:idx+seq_len]):
             non_matching.append({
@@ -781,6 +781,7 @@ def classify_transcript_predictions(true_labels, predictions, seq_ids, seq_lengt
         'Wrong ORF but with right TTS': 0,
         'Other Errors': 0
     }
+    transcript_with_ORFs = 0
     total_transcripts = len(seq_ids)
     print("total_transcripts",total_transcripts)
     
@@ -794,9 +795,35 @@ def classify_transcript_predictions(true_labels, predictions, seq_ids, seq_lengt
         true_seq = true_labels[idx: idx+seq_len]
         pred_seq = predictions[idx: idx+seq_len]
 
+        # 寻找预测序列中的TIS和TTS
+        tis_positions = []
+        tts_positions = []
+        
+        # 查找所有连续的三个0（TIS）
+        for j in range(len(pred_seq)-2):
+            if (pred_seq[j] == 0 and 
+                pred_seq[j+1] == 0 and 
+                pred_seq[j+2] == 0):
+                tis_positions.append(j)
+        
+        # 查找所有连续的三个1（TTS）
+        for j in range(len(pred_seq)-2):
+            if (pred_seq[j] == 1 and 
+                pred_seq[j+1] == 1 and 
+                pred_seq[j+2] == 1):
+                tts_positions.append(j)
+        
+        # 检查是否有且仅有一个TIS和一个TTS
+        if (len(tis_positions) == 1 and 
+            len(tts_positions) == 1 and 
+            tis_positions[0] < tts_positions[0] and  # TIS在TTS的5'端
+            tts_positions[0] - tis_positions[0] > 50):  # 距离大于50bp
+            transcript_with_ORFs += 1
+
         tis_true = (true_seq == 0)  # Start_Codon (TIS)
         tts_true = (true_seq == 1)  # Stop_Codon (TTS)
         nontistts_true = (true_seq == 2)  # no-TIS/TTS 
+        
         tis_pred = (pred_seq == 0)
         tts_pred = (pred_seq == 1)
         nontistts_pred = (pred_seq == 2) 
@@ -830,6 +857,8 @@ def classify_transcript_predictions(true_labels, predictions, seq_ids, seq_lengt
             results['Other Errors'] += 1
         
         idx += seq_len
+    print("ORF results:", results, total_transcripts)
+    print("transcript_with_ORFs:", transcript_with_ORFs)
     return results, total_transcripts
 
 # Plot Transcript Performance
