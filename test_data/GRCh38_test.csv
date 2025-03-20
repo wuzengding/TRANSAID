@@ -1,0 +1,4 @@
+Sequence_ID,Start,Stop,TIS_Score,TTS_Score,Kozak_Score,CAI_Score,GC_Score,Integrated_Score,Protein_Length,Passed_Filter,Filter_Reason
+NM_000016.6,79,1342,0.974,0.976,2.150,0.310,0.997,0.996,422,True,""
+NM_000015.3,70,940,0.966,0.970,2.016,0.337,1.000,0.986,291,True,""
+NM_000014.6,70,4492,0.970,0.986,1.210,0.330,0.872,0.959,1475,True,""
