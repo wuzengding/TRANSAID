@@ -492,6 +492,10 @@ def save_predictions(predictions, true_labels, seq_ids, seq_lengths, results, ar
         ## 添加调试打印
         #print(f"Processing seq_id: {seq_id}, results_idx: {results_idx}")
         #print(f"Results keys at index {results_idx}: {results[results_idx].keys()}")
+        #if seq_id == "NM_000448":
+        #    np.set_printoptions(threshold=np.inf)  # 禁用numpy的省略显示
+        #    print("predicton:", predictions[idx:idx+seq_len])
+        #    print("true_labels:", true_labels[idx:idx+seq_len])
         
         if not np.array_equal(predictions[idx:idx+seq_len], true_labels[idx:idx+seq_len]):
             non_matching.append({
