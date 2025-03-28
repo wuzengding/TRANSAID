@@ -24,8 +24,8 @@ def get_args():
                         help='GPU device ID, -1 for CPU')
 
     # 结果过滤相关
-    parser.add_argument('--probs_cutoff', type=float, default=0.1,
-                        help='Cutoff value for probability score')
+    #parser.add_argument('--probs_cutoff', type=float, default=0.1,
+    #                    help='Cutoff value for probability score')
     parser.add_argument('--integrated_cutoff', type=float, default=0.5,
                         help='Cutoff value for integrated score')
     parser.add_argument('--filter_mode', choices=['all', 'best'], default='best',
@@ -44,11 +44,11 @@ def get_args():
     # 结果过滤细节
     parser.add_argument('--orf_length_cutoff', type=int, default=30,
                         help='Minimum ORF length in amino acids')
-    parser.add_argument('--kozak_cutoff', type=float, default=0.3,
+    parser.add_argument('--kozak_cutoff', type=float, default=0.05,
                         help='Minimum Kozak sequence score')
-    parser.add_argument('--tis_cutoff', type=float, default=0.5,
+    parser.add_argument('--tis_cutoff', type=float, default=0.1,
                         help='Minimum TIS prediction score')
-    parser.add_argument('--tts_cutoff', type=float, default=0.5,
+    parser.add_argument('--tts_cutoff', type=float, default=0.1,
                         help='Minimum TTS prediction score')
     
     return parser.parse_args()
@@ -83,7 +83,8 @@ def main():
             device=args.gpu,
             batch_size=args.batch_size,
             sequence_length=args.max_seq_len,
-            probs_cutoff=args.probs_cutoff,
+            tis_cutoff=args.tis_cutoff,
+            tts_cutoff=args.tts_cutoff,
             orf_length_cutoff=args.orf_length_cutoff
         )
         
@@ -107,12 +108,8 @@ def main():
             reasons = []
             if r.integrated_score <= args.integrated_cutoff:
                 reasons.append(f"integrated_score({r.integrated_score:.3f}) <= {args.integrated_cutoff}")
-            if r.kozak_score <= args.kozak_cutoff:
-                reasons.append(f"kozak_score({r.kozak_score:.3f}) <= {args.kozak_cutoff}")
-            if r.tis_score <= args.tis_cutoff:
-                reasons.append(f"tis_score({r.tis_score:.3f}) <= {args.tis_cutoff}")
-            if r.tts_score <= args.tts_cutoff:
-                reasons.append(f"tts_score({r.tts_score:.3f}) <= {args.tts_cutoff}")
+            #if r.kozak_score <= args.kozak_cutoff:
+            #    reasons.append(f"kozak_score({r.kozak_score:.3f}) <= {args.kozak_cutoff}")
             if len(r.protein_sequence) < args.orf_length_cutoff:
                 reasons.append(f"protein_length({len(r.protein_sequence)}) < {args.orf_length_cutoff}")
             

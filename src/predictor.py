@@ -61,7 +61,8 @@ class TranslationPredictor:
                  device: Union[str, int] = 'cpu',
                  batch_size: int = 32,
                  sequence_length: int = 27109,
-                 probs_cutoff: float = 0.1,
+                 tis_cutoff: float = 0.1,
+                 tts_cutoff: float = 0.1,
                  orf_length_cutoff: int = 50):
         """初始化预测器
         
@@ -70,12 +71,14 @@ class TranslationPredictor:
             device: 计算设备,'cpu'或GPU设备ID(int)或'cuda'
             batch_size: 批处理大小
             sequence_length: 序列固定长度,默认27109
-            probs_cutoff: 最小概率阈值
+            tis_cutoff: 最小概率值,
+            tts_cutoff: 最小概率值,
             orf_length_cutoff: 最小CDS长度
         """
         self.batch_size = batch_size
         self.sequence_length = sequence_length
-        self.probs_cutoff = probs_cutoff
+        self.tis_cutoff = tis_cutoff
+        self.tts_cutoff = tts_cutoff
         
         # 设置设备
         if isinstance(device, int) and device >= 0:
@@ -191,9 +194,9 @@ class TranslationPredictor:
                     # 寻找ATG和终止密码子
                     for j in range(len(sequence)-2):
                         codon = sequence[j:j+3]
-                        if codon == 'ATG' and tis_probs[j:j+3].mean() > self.probs_cutoff:
+                        if codon == 'ATG' and tis_probs[j:j+3].mean() > self.tis_cutoff:
                                 potential_tis.append(j)
-                        elif codon in ['TAA', 'TAG', 'TGA'] and tts_probs[j:j+3].mean() > self.probs_cutoff:
+                        elif codon in ['TAA', 'TAG', 'TGA'] and tts_probs[j:j+3].mean() > self.tts_cutoff:
                             potential_tts.append(j)
 
                     #print("potential_tis",potential_tis)
@@ -360,16 +363,16 @@ class TranslationPredictor:
         else:
             raise ValueError(f"Unsupported output format: {format}")
 
-    def __repr__(self) -> str:
-        """返回预测器的字符串表示
-        
-        Returns:
-            str: 预测器的描述字符串
-        """
-        return (
-            f"TranslationPredictor(device={self.device}, "
-            f"batch_size={self.batch_size}, "
-            f"sequence_length={self.sequence_length}, "
-            f"probs_cutoff={self.probs_cutoff})"
-        )
+    #def __repr__(self) -> str:
+    #    """返回预测器的字符串表示
+    #    
+    #    Returns:
+    #        str: 预测器的描述字符串
+    #    """
+    #    return (
+    #        f"TranslationPredictor(device={self.device}, "
+    #        f"batch_size={self.batch_size}, "
+    #        f"sequence_length={self.sequence_length}, "
+    #        f"probs_cutoff={self.probs_cutoff})"
+    #    )
 

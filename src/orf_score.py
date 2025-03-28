@@ -37,6 +37,7 @@ class BayesianScorer:
             2:  {'A': 0.00, 'C': 0.00, 'G': 1.00, 'T': 0.00},  # G of ATG
             3:  {'A': 0.20, 'C': 0.20, 'G': 0.40, 'T': 0.20}   # +4位点
         }
+        self.max_score = self._calculate_max_score()  # 定义最大可能得分（理想Kozak序列的得分）
         
         # 设置密码子使用频率
         self.codon_usage = {
@@ -77,7 +78,34 @@ class BayesianScorer:
             'TGC':'C', 'TGT':'C', 'TGA':'*', 'TGG':'W',
         }
 
+    def _calculate_max_score(self) -> float:
+        """计算理想Kozak序列的最大得分（用于归一化）"""
+        max_score = 1.0
+        for pos in self.kozak_pwm:
+            max_base = max(self.kozak_pwm[pos].values())
+            max_score *= max_base
+        return max_score
     def calculate_kozak_score(self, sequence: str, tis_pos: int) -> float:
+        """计算Kozak序列得分，并归一化到0-1范围"""
+        if tis_pos < 6 or tis_pos + 4 >= len(sequence):
+            return 0.0
+        
+        kozak_region = sequence[tis_pos-6:tis_pos+4].upper()
+        if len(kozak_region) != 10:
+            return 0.0
+        
+        # 计算原始得分
+        raw_score = 1.0
+        for i, base in enumerate(kozak_region):
+            pos = i - 6
+            if pos in self.kozak_pwm and base in self.kozak_pwm[pos]:
+                raw_score *= self.kozak_pwm[pos][base]
+        
+        # 归一化到0-1范围
+        normalized_score = raw_score / self.max_score
+        return normalized_score
+    
+    def calculate_kozak_score_(self, sequence: str, tis_pos: int) -> float:
         """计算Kozak序列得分"""
         if tis_pos < 6 or tis_pos + 4 >= len(sequence):
             return 0.0
