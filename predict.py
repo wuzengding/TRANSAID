@@ -26,7 +26,7 @@ def get_args():
     # 结果过滤相关
     #parser.add_argument('--probs_cutoff', type=float, default=0.1,
     #                    help='Cutoff value for probability score')
-    parser.add_argument('--integrated_cutoff', type=float, default=0.15,
+    parser.add_argument('--integrated_cutoff', type=float, default=0.5,
                         help='Cutoff value for integrated score')
     parser.add_argument('--filter_mode', choices=['all', 'best'], default='best',
                         help='Keep all ORFs above cutoff or only the best one')
@@ -44,11 +44,11 @@ def get_args():
     # 结果过滤细节
     parser.add_argument('--orf_length_cutoff', type=int, default=30,
                         help='Minimum ORF length in amino acids')
-    parser.add_argument('--kozak_cutoff', type=float, default=0.0,
+    parser.add_argument('--kozak_cutoff', type=float, default=0.05,
                         help='Minimum Kozak sequence score')
-    parser.add_argument('--tis_cutoff', type=float, default=0.0,
+    parser.add_argument('--tis_cutoff', type=float, default=0.1,
                         help='Minimum TIS prediction score')
-    parser.add_argument('--tts_cutoff', type=float, default=0.0,
+    parser.add_argument('--tts_cutoff', type=float, default=0.1,
                         help='Minimum TTS prediction score')
     
     return parser.parse_args()
