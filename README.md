@@ -19,7 +19,7 @@ This tool was designed to overcome the limitations of existing methods by being 
 
 For quick and easy analysis of a few sequences without any installation, we provide a user-friendly web server.
 
--   **URL**: [http://your.server.ip.address:port](http://your.server.ip.address:port)  *(Please replace with your actual server URL, e.g., http://58.242.248.157:6005)*
+-   **URL**: [http://58.242.248.157:6005](http://58.242.248.157:6005)  
 -   **Functionality**:
     -   Paste FASTA sequences directly or upload a FASTA file.
     -   Adjust key prediction parameters (`filter_mode`, `integrated_cutoff`, etc.).
