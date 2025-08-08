@@ -109,7 +109,7 @@ Here is a detailed explanation of all available command-line options:
 | `--orf_length_cutoff`| The minimum length (in amino acids) of the translated protein for an ORF to be reported. | `30` |
 | `--batch_size`| The number of sequences to process in one batch. Adjust based on GPU memory. | `4` |
 | `--max_seq_len` | The maximum sequence length the model was trained on. Sequences longer than this will be truncated. | `27112` |
-| `--kozak_cutoff`| Minimum Kozak sequence score for filtering. Only applied if `integrated_cutoff` is not the main focus. | `0.0` |
+| `--kozak_cutoff`| Minimum Kozak sequence score for filtering. Only applied if `integrated_cutoff` is not the main focus. | `0.05` |
 | `--tis_cutoff`| Minimum TIS probability score from the model. | `0.1` |
 | `--tts_cutoff`| Minimum TTS probability score from the model. | `0.1` |
 | `--save_raw_predictions`| If specified, saves the raw model output probabilities as a `.pkl` file for debugging. | `False` |
@@ -120,6 +120,6 @@ Here is a detailed explanation of all available command-line options:
 
 If you use TRANSAID in your research, please cite our paper:
 
-> [Your Paper's Citation Will Go Here - e.g., Wu, Z., Wang, B., et al. (2025). TRANSAID: A Hybrid Deep Learning Framework... *Journal Name*, Vol(Issue), pages.]
+> [Wu, Z., Wang, B., et al. (2025). TRANSAID: A Hybrid Deep Learning Framework... ]
 
 We hope TRANSAID accelerates your research in transcriptomics and proteomics!
