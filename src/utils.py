@@ -5,6 +5,12 @@ import numpy as np
 from typing import Dict, List, Union
 from pathlib import Path
 import logging
+from Bio.Seq import Seq
+from Bio import SeqIO
+import tempfile
+import os
+
+from .data_structs import TranslationResult
 
 # 核苷酸编码字典
 NUCLEOTIDE_DICT = {
@@ -131,5 +137,59 @@ def save_results(probs,
         with open(pickle_path, 'wb') as f:
             pickle.dump(probs, f)
 
+def find_perfect_orfs(input_fasta_path: Union[str, Path]):
+    """
+    扫描FASTA文件以识别“完美”ORF。
+    完美ORF指：以ATG开头，以标准终止密码子结尾，且长度是3的倍数。
+    """
+    perfect_results = []
+    remaining_records = []
+    stop_codons = {"TAA", "TAG", "TGA"}
+    logger = logging.getLogger("translation_predictor") # Use the same logger
+    logger.info(f"Pre-screening for perfect ORFs in {input_fasta_path}...")
+    
+    for record in SeqIO.parse(str(input_fasta_path), "fasta"):
+        seq = str(record.seq).upper()
+        is_perfect = (len(seq) >= 6 and len(seq) % 3 == 0 and
+                      seq.startswith("ATG") and seq[-3:] in stop_codons)
+        
+        if is_perfect:
+            cds_seq = seq[:-3]
+            try:
+                protein_seq = str(Seq(cds_seq).translate(to_stop=False))
+                result = TranslationResult(
+                    sequence_id=record.id,
+                    start_position=0,
+                    stop_position=len(seq) - 3,
+                    protein_sequence=protein_seq,
+                    tis_score=1.0, tts_score=1.0, kozak_score=1.0,
+                    cai_score=1.0, gc_score=1.0, integrated_score=2.0,
+                    passed_filter=True,
+                    filter_reason="Perfect ORF detected by pre-screening"
+                )
+                perfect_results.append(result)
+            except Exception as e:
+                logger.warning(f"Could not translate perfect ORF candidate {record.id}, adding to prediction queue. Error: {e}")
+                remaining_records.append(record)
+        else:
+            remaining_records.append(record)
+            
+    if not remaining_records:
+        return perfect_results, None
 
+    # 将剩余序列写入临时文件
+    temp_fd, remaining_fasta_path = tempfile.mkstemp(suffix=".fasta", text=True, prefix="transaid_predict_")
+    os.close(temp_fd)
+    SeqIO.write(remaining_records, remaining_fasta_path, "fasta")
+    
+    logger.info(f"Found {len(perfect_results)} perfect ORFs. {len(remaining_records)} sequences remain for model prediction.")
+    
+    return perfect_results, remaining_fasta_path
 
+def cleanup_temp_file(filepath: str):
+    """如果文件存在，安全地删除临时文件。"""
+    if filepath and os.path.exists(filepath):
+        try:
+            os.remove(filepath)
+        except OSError as e:
+            logging.getLogger("translation_predictor").warning(f"Could not remove temporary file {filepath}: {e}")
