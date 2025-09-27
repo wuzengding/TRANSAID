@@ -105,7 +105,7 @@ Here is a detailed explanation of all available command-line options:
 | `--output` | **[Required]** The base path and prefix for the output files (e.g., `results/my_preds`). The script will append `.csv` and `.faa`.| |
 | `--gpu` | GPU device ID to use. Set to `-1` to run on CPU (slower). | `0` |
 | `--filter_mode` | Prediction filtering mode. `best`: keeps only the highest-scoring ORF per transcript. `all`: keeps all ORFs that pass the score cutoffs. | `best` |
-| `--integrated_cutoff` | The minimum `Integrated_Score` an ORF must have to be considered a positive prediction. This is the primary filtering threshold. | `0.5` |
+| `--integrated_cutoff` | The minimum `Integrated_Score` an ORF must have to be considered a positive prediction. This is the primary filtering threshold. | `0.635` |
 | `--orf_length_cutoff`| The minimum length (in amino acids) of the translated protein for an ORF to be reported. | `30` |
 | `--batch_size`| The number of sequences to process in one batch. Adjust based on GPU memory. | `4` |
 | `--max_seq_len` | The maximum sequence length the model was trained on. Sequences longer than this will be truncated. | `27112` |
