@@ -121,7 +121,7 @@ def get_utr_regions(cds_start, cds_end, seq_length):
     return utr_regions
 
 def modify_sequence_regions_(sequence, cds_start, cds_end, 
-                          utr_shuffle=None, cds_shuffle=False,
+                          utr_shuffle=None, cds_shuffle=False, cds_offset=4,
                           utr_insert_bases=None, utr_delete_bases=None,
                           cds_insert_bases=0, cds_delete_bases=0):
     """
@@ -139,7 +139,6 @@ def modify_sequence_regions_(sequence, cds_start, cds_end,
     """
     seq_list = list(sequence)
     seq_length = len(sequence)
-    offset = 3
     
     utr_regions = get_utr_regions(cds_start, cds_end, seq_length)
         
@@ -204,7 +203,7 @@ def modify_sequence_regions_(sequence, cds_start, cds_end,
     return ''.join(seq_list)
 
 def modify_sequence_regions(sequence, cds_start, cds_end, 
-                          utr_shuffle=None, cds_shuffle=False,
+                          utr_shuffle=None, cds_shuffle=False, cds_offset=4,
                           utr_insert_bases=None, utr_delete_bases=None,
                           cds_insert_bases=0, cds_delete_bases=0):
     """
@@ -222,7 +221,7 @@ def modify_sequence_regions(sequence, cds_start, cds_end,
     """
     seq_list = list(sequence)
     seq_length = len(sequence)
-    offset = 3  # 安全偏移量
+    offset = 4  # 安全偏移量
     
     # 初始化新CDS坐标
     new_cds_start = cds_start
@@ -493,6 +492,7 @@ def main(args):
                     cds_end=cds_regions[1],
                     utr_shuffle=args.utr_shuffle,
                     cds_shuffle=args.cds_shuffle,
+                    cds_offset=args.cds_offset,
                     utr_insert_bases=args.utr_insert_bases,
                     utr_delete_bases=args.utr_delete_bases,
                     cds_insert_bases=args.cds_insert_bases,
@@ -617,6 +617,8 @@ if __name__ == "__main__":
                        help="Shuffle UTR sequences: '5' for 5' UTR, '3' for 3' UTR, 'both' for both, or 'none'")
     parser.add_argument('--cds_shuffle', action='store_true',
                        help="Shuffle CDS region")
+    parser.add_argument('--cds_offset', type=int, default=13,
+                       help="Shuffle CDS region") 
     parser.add_argument('--utr_insert_bases', type=str,
                        help="Insert random bases in UTR (format: '3-1', '5-3', 'both-1')")
     parser.add_argument('--utr_delete_bases', type=str,

@@ -777,13 +777,13 @@ def plot_metrics_matrix(precision, recall, f1, precision_macro, recall_macro, f1
 
 
 # Classify Transcript Predictions
-def classify_transcript_predictions(true_labels, predictions, seq_ids, seq_lengths):
+def classify_transcript_predictions_(true_labels, predictions, seq_ids, seq_lengths):
     results = {
-        'Right ORF with all base correct': 0,
-        'Right ORF with base incorrect partially': 0,
-        'Wrong ORF but with right TIS':0,
-        'Wrong ORF but with right TTS': 0,
-        'Other Errors': 0
+        'Perfect ORF Prediction': 0,
+        'Near-Perfect ORF Prediction': 0,
+        'Correct TIS, incorrect TTS Prediction':0,
+        'Correct TTS, incorrect TIS Prediction': 0,
+        'Other Predictions Errors': 0
     }
     transcript_with_ORFs = 0
     total_transcripts = len(seq_ids)
@@ -849,24 +849,173 @@ def classify_transcript_predictions(true_labels, predictions, seq_ids, seq_lengt
         
         if all_correct:
             #print(partial_nontistts)
-            results['Right ORF with all base correct'] += 1
+            results['Perfect ORF Prediction'] += 1
         elif partially_correct:
             #print(partial_nontistts)
-            results['Right ORF with base incorrect partially'] += 1
+            results['Near-Perfect ORF Prediction'] += 1
         elif tis_correct and not tts_correct:
-            results['Wrong ORF but with right TIS'] += 1
+            results['Correct TIS, incorrect TTS Prediction'] += 1
         elif not tis_correct and tts_correct:
-            results['Wrong ORF but with right TTS'] += 1
+            results['Correct TTS, incorrect TIS Prediction'] += 1
         else:
-            results['Other Errors'] += 1
+            results['Other Predictions Errors'] += 1
         
         idx += seq_len
     print("ORF results:", results, total_transcripts)
     print("transcript_with_ORFs:", transcript_with_ORFs)
     return results, total_transcripts
 
+# Classify Transcript Predictions for both coding and non-coding transcripts
+def classify_transcript_predictions(true_labels, predictions, seq_ids, seq_lengths):
+    # 区分 NM/XM 和 NR/XR 数据集
+    nm_xm_ids = []
+    nr_xr_ids = []
+    
+    for i, seq_id in enumerate(seq_ids):
+        if seq_id.startswith(('NM_', 'XM_')):
+            nm_xm_ids.append(i)
+        elif seq_id.startswith(('NR_', 'XR_')):
+            nr_xr_ids.append(i)
+    
+    # 初始化结果字典
+    coding_results = {
+        'Perfect ORF Prediction': 0,
+        'Near-Perfect ORF Prediction': 0,
+        'Correct TIS, incorrect TTS Prediction': 0,
+        'Correct TTS, incorrect TIS Prediction': 0,
+        'Other Predictions Errors': 0
+    }
+    
+    noncoding_results = {
+        'Correct Non-coding Prediction': 0,
+        'Incorrect TIS-only Prediction': 0,
+        'Incorrect TTS-only Prediction': 0,
+        'False ORF Prediction': 0,
+        'Other Prediction Errors': 0
+    }
+    
+    # 统计数量
+    total_nm_xm = len(nm_xm_ids)
+    total_nr_xr = len(nr_xr_ids)
+    nm_xm_with_orfs = 0
+    nr_xr_with_orfs = 0
+    
+    print(f"Total NM/XM transcripts: {total_nm_xm}")
+    print(f"Total NR/XR transcripts: {total_nr_xr}")
+    
+    idx = 0
+    for i, seq_id in enumerate(seq_ids):
+        seq_len = seq_lengths[i]
+        
+        true_seq = true_labels[idx: idx+seq_len]
+        pred_seq = predictions[idx: idx+seq_len]
+        
+        # 寻找预测序列中的TIS和TTS
+        tis_positions = []
+        tts_positions = []
+        
+        # 查找所有连续的三个0（TIS）
+        for j in range(len(pred_seq)-2):
+            if (pred_seq[j] == 0 and 
+                pred_seq[j+1] == 0 and 
+                pred_seq[j+2] == 0):
+                tis_positions.append(j)
+        
+        # 查找所有连续的三个1（TTS）
+        for j in range(len(pred_seq)-2):
+            if (pred_seq[j] == 1 and 
+                pred_seq[j+1] == 1 and 
+                pred_seq[j+2] == 1):
+                tts_positions.append(j)
+        
+        # 检查是否有且仅有一个TIS和一个TTS
+        has_valid_orf = (len(tis_positions) == 1 and 
+                         len(tts_positions) == 1 and 
+                         tis_positions[0] < tts_positions[0] and  # TIS在TTS的5'端
+                         tts_positions[0] - tis_positions[0] > 50)  # 距离大于50bp
+        
+        # 计算各部分的正确性
+        tis_true = (true_seq == 0)  # Start_Codon (TIS)
+        tts_true = (true_seq == 1)  # Stop_Codon (TTS)
+        nontistts_true = (true_seq == 2)  # no-TIS/TTS 
+        
+        tis_pred = (pred_seq == 0)
+        tts_pred = (pred_seq == 1)
+        nontistts_pred = (pred_seq == 2) 
+
+        all_correct = np.array_equal(true_seq, pred_seq)
+        tis_correct = np.array_equal(tis_true, tis_pred)
+        tts_correct = np.array_equal(tts_true, tts_pred)
+        
+        # 检查是否部分正确
+        partial_tis = np.sum(tis_true & tis_pred)>=2
+        partial_tts = np.sum(tts_true & tts_pred)>=2
+        partial_nontistts = np.sum((nontistts_true == nontistts_pred) == 0) <=1
+        partially_correct = (partial_tis and partial_tts) and partial_nontistts
+        
+        # 根据数据集类型进行不同的评估
+        if seq_id.startswith(('NM_', 'XM_')):  # 可编码转录本
+            if has_valid_orf:
+                nm_xm_with_orfs += 1
+                
+            if all_correct:
+                coding_results['Perfect ORF Prediction'] += 1
+            elif partially_correct:
+                coding_results['Near-Perfect ORF Prediction'] += 1
+            elif tis_correct and not tts_correct:
+                coding_results['Correct TIS, incorrect TTS Prediction'] += 1
+            elif not tis_correct and tts_correct:
+                coding_results['Correct TTS, incorrect TIS Prediction'] += 1
+            else:
+                coding_results['Other Predictions Errors'] += 1
+                
+        elif seq_id.startswith(('NR_', 'XR_')):  # 非编码转录本
+            if has_valid_orf:
+                nr_xr_with_orfs += 1
+                noncoding_results['False ORF Prediction'] += 1
+            elif all_correct:
+                noncoding_results['Correct Non-coding Prediction'] += 1
+            elif tis_correct and not tts_correct:
+                noncoding_results['Incorrect TTS-only Prediction'] += 1
+            elif not tis_correct and tts_correct:
+                noncoding_results['Incorrect TIS-only Prediction'] += 1
+            else:
+                noncoding_results['Other Prediction Errors'] += 1
+        
+        idx += seq_len
+    
+    # 输出结果统计
+    print("\n=== NM/XM Coding Transcripts Results ===")
+    print(f"Total transcripts: {total_nm_xm}")
+    print(f"Transcripts with valid ORFs: {nm_xm_with_orfs}")
+    
+    if total_nm_xm > 0:
+        for key, value in coding_results.items():
+            print(f"{key}: {value} ({value/total_nm_xm*100:.2f}%)")
+    else:
+        print("No NM/XM transcripts found in the dataset.")
+    
+    print("\n=== NR/XR Non-coding Transcripts Results ===")
+    print(f"Total transcripts: {total_nr_xr}")
+    print(f"Transcripts with false ORFs: {nr_xr_with_orfs}")
+    
+    if total_nr_xr > 0:
+        for key, value in noncoding_results.items():
+            print(f"{key}: {value} ({value/total_nr_xr*100:.2f}%)")
+    else:
+        print("No NR/XR transcripts found in the dataset.")
+    
+    return {
+        "coding_results": coding_results, 
+        "noncoding_results": noncoding_results,
+        "total_nm_xm": total_nm_xm,
+        "total_nr_xr": total_nr_xr,
+        "nm_xm_with_orfs": nm_xm_with_orfs,
+        "nr_xr_with_orfs": nr_xr_with_orfs
+    }
+
 # Plot Transcript Performance
-def plot_transcript_performance(results, total, output_dir, prefix):
+def plot_transcript_performance_(results, total, output_dir, prefix):
     labels = [f'group{i+1}' for i in range(len(results.keys()))]
     descriptions = list(results.keys())
     counts = list(results.values())
@@ -896,6 +1045,118 @@ def plot_transcript_performance(results, total, output_dir, prefix):
     plt.show()
     print(f"Transcript performance plot saved to {output_dir}/{prefix}_transcript_performance.png")
 
+def plot_transcript_performance(results_dict, output_dir, prefix):
+    """
+    绘制转录本预测性能图表并保存结果到CSV
+    
+    Args:
+        results_dict: 包含编码和非编码转录本结果的字典
+        output_dir: 输出目录
+        prefix: 文件名前缀
+    """    
+    import csv
+    # 提取结果数据
+    coding_results = results_dict.get("coding_results", {})
+    noncoding_results = results_dict.get("noncoding_results", {})
+    total_nm_xm = results_dict.get("total_nm_xm", 0)
+    total_nr_xr = results_dict.get("total_nr_xr", 0)
+    
+    # 准备CSV数据
+    csv_rows = []
+    csv_rows.append(['Category', 'Type', 'Count', 'Percentage'])
+        
+    # 处理编码转录本结果
+    if total_nm_xm > 0:
+        for key, value in coding_results.items():
+            csv_rows.append(['NM/XM', key, value, f"{value/total_nm_xm:.4f}"])
+        csv_rows.append(['NM/XM', 'Total', total_nm_xm, '1.0000'])
+        csv_rows.append(['NM/XM', 'With ORFs', results_dict.get("nm_xm_with_orfs", 0), 
+                       f"{results_dict.get('nm_xm_with_orfs', 0)/total_nm_xm:.4f}"])
+    
+    # 处理非编码转录本结果
+    if total_nr_xr > 0:
+        for key, value in noncoding_results.items():
+            csv_rows.append(['NR/XR', key, value, f"{value/total_nr_xr:.4f}"])
+        csv_rows.append(['NR/XR', 'Total', total_nr_xr, '1.0000'])
+        csv_rows.append(['NR/XR', 'With False ORFs', results_dict.get("nr_xr_with_orfs", 0), 
+                       f"{results_dict.get('nr_xr_with_orfs', 0)/total_nr_xr:.4f}"])
+    
+    # 保存CSV (只要有任何数据)
+    if total_nm_xm > 0 or total_nr_xr > 0:
+        csv_path = os.path.join(output_dir, f"{prefix}_transcript_performance.csv")
+        with open(csv_path, 'w', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            for row in csv_rows:
+                writer.writerow(row)
+        print(f"Performance statistics saved to {csv_path}")
+    else:
+        print("No transcript data to save to CSV.")
+    
+    # 为编码转录本生成图表
+    if total_nm_xm > 0:
+        labels = [f'group{i+1}' for i in range(len(coding_results.keys()))]
+        descriptions = list(coding_results.keys())
+        counts = list(coding_results.values())
+        ratios = [count / total_nm_xm for count in counts]
+
+        plt.figure(figsize=(10, 6))
+        bars = plt.bar(labels, ratios, color=['green', 'blue', 'orange', 'red', 'purple'])
+
+        # 调整每个柱状图上文本的位置
+        for bar, count, ratio in zip(bars, counts, ratios):
+            height = bar.get_height()
+            if height < 0.9:  # 当高度不太高时，文本放在柱状图上方
+                plt.text(bar.get_x() + bar.get_width() / 2, height + 0.02, f'{count} ({ratio:.2%})',
+                         ha='center', va='bottom', fontsize=10, color='black')
+            else:  # 当高度较高时，文本放在柱状图中间
+                plt.text(bar.get_x() + bar.get_width() / 2, height / 2, f'{count} ({ratio:.2%})',
+                         ha='center', va='center', fontsize=10, color='black')
+        
+        plt.title(f'{prefix} - NM/XM Coding Transcripts Performance')
+        plt.xlabel('Performance Category')
+        plt.ylabel('Ratio')
+        plt.ylim(0, 1)
+        plt.grid(axis='y', linestyle='--', alpha=0.7)
+        plt.legend(bars, [f'{a}:{b}' for a,b in zip(labels, descriptions)], loc='upper right')  
+        plt.tight_layout()
+        plt.savefig(os.path.join(output_dir, f"{prefix}_nm_xm_performance.png"))
+        plt.close()
+        print(f"NM/XM transcript performance plot saved to {output_dir}/{prefix}_nm_xm_performance.png")
+
+    # 为非编码转录本生成图表
+    if total_nr_xr > 0:
+        labels = [f'group{i+1}' for i in range(len(noncoding_results.keys()))]
+        descriptions = list(noncoding_results.keys())
+        counts = list(noncoding_results.values())
+        ratios = [count / total_nr_xr for count in counts]
+
+        plt.figure(figsize=(10, 6))
+        bars = plt.bar(labels, ratios, color=['green', 'orange', 'red', 'blue', 'purple'])
+
+        # 调整每个柱状图上文本的位置
+        for bar, count, ratio in zip(bars, counts, ratios):
+            height = bar.get_height()
+            if height < 0.9:
+                plt.text(bar.get_x() + bar.get_width() / 2, height + 0.02, f'{count} ({ratio:.2%})',
+                         ha='center', va='bottom', fontsize=10, color='black')
+            else:
+                plt.text(bar.get_x() + bar.get_width() / 2, height / 2, f'{count} ({ratio:.2%})',
+                         ha='center', va='center', fontsize=10, color='black')
+        
+        plt.title(f'{prefix} - NR/XR Non-coding Transcripts Performance')
+        plt.xlabel('Performance Category')
+        plt.ylabel('Ratio')
+        plt.ylim(0, 1)
+        plt.grid(axis='y', linestyle='--', alpha=0.7)
+        plt.legend(bars, [f'{a}:{b}' for a,b in zip(labels, descriptions)], loc='upper right')  
+        plt.tight_layout()
+        plt.savefig(os.path.join(output_dir, f"{prefix}_nr_xr_performance.png"))
+        plt.close()
+        print(f"NR/XR transcript performance plot saved to {output_dir}/{prefix}_nr_xr_performance.png")
+
+    # 如果两种类型都没有，显示警告
+    if total_nm_xm == 0 and total_nr_xr == 0:
+        print("Warning: No transcripts found for either type (NM/XM) nor type(NR/XR)")
 
 def main(args):
     device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
@@ -943,10 +1204,16 @@ def main(args):
     plot_confusion_matrix(true_labels, predictions, args.output_dir, args.prefix)
 
     # Classify performance
-    results, total_transcripts = classify_transcript_predictions(true_labels, predictions, seq_ids, seq_lengths)
+    #results, total_transcripts = classify_transcript_predictions(true_labels, predictions, seq_ids, seq_lengths)
 
     # Plot transcript prediction performance
-    plot_transcript_performance(results, total_transcripts, args.output_dir, args.prefix)
+    #plot_transcript_performance(results, total_transcripts, args.output_dir, args.prefix)
+    
+    # 新的调用关系
+    results_dict = classify_transcript_predictions(true_labels, predictions, seq_ids, seq_lengths)
+
+    # 绘制性能图表并保存结果
+    plot_transcript_performance(results_dict, args.output_dir, args.prefix)
 
     # Calculate scores for ROC curve
     #y_true_binary = (y_true == 2).astype(int)  # Binary labels for the positive class (e.g., Start_Codon(TIS))
