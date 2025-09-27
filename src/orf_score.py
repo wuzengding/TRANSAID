@@ -17,11 +17,11 @@ class BayesianScorer:
         
         # 设置权重
         self.weights = {
-            'tis_prob': 0.45,
-            'tts_prob': 0.45,
+            'tis_prob': 0.30,
+            'tts_prob': 0.50,
             'kozak': 0.04,
             'cai': 0.04,
-            'gc_score': 0.02
+            'gc_score': 0
         }
         
         # 设置Kozak序列PWM矩阵

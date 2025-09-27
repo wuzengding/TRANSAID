@@ -14,7 +14,7 @@ def get_args():
     parser.add_argument('--output', type=str, required=True, help='Base path for output files (CSV and FASTA)')
     parser.add_argument('--model_path', type=str, required=True, help='Path to pretrained model')
     parser.add_argument('--gpu', type=int, default=-1, help='GPU device ID, -1 for CPU')
-    parser.add_argument('--integrated_cutoff', type=float, default=0.5, help='Cutoff value for integrated score')
+    parser.add_argument('--integrated_cutoff', type=float, default=0.65, help='Cutoff value for integrated score')
     parser.add_argument('--filter_mode', choices=['all', 'best'], default='best', help='Keep all ORFs above cutoff or only the best one')
     parser.add_argument('--save_raw_predictions', action='store_true', help='Whether to save raw prediction results in PKL format')
     parser.add_argument('--batch_size', type=int, default=32, help='Batch size for prediction')
