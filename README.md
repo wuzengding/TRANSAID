@@ -1,6 +1,6 @@
 TRANSAID Project
 Overview
-TRANSAID is a comprehensive project designed for [please specify the core task, e.g., "transcriptome data analysis" or "biomedical signal processing"]. This repository provides a complete workflow including data encoding, model training, batch prediction, and result evaluation, enabling efficient processing and analysis of [relevant data type].
+TRANSAID is a comprehensive project designed for translating prediction. This repository provides a complete workflow including data encoding, model training, batch prediction, and result evaluation, enabling efficient processing and analysis of [relevant data type].
 This documentation refers to the TRANSAID_traninning_latest branch, which contains the most up-to-date training workflows and scripts.
 Repository Structure
 Component	Script File	Execution Script	Primary Function
