@@ -28,7 +28,7 @@ Before running the scripts, ensure your environment meets these requirements:
 
 1. Clone the repository and switch to the target branch:
    ```bash
-   git clone [repository-url]
+   git clone git@github.com:wuzengding/TRANSAID.git
    cd TRANSAID
    git checkout TRANSAID_traninning_latest
    ```
