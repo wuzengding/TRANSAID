@@ -105,7 +105,6 @@ chmod +x Analyze_prediction_run.sh
 
 - `TRANSAID_traninning_latest`: Current branch with the latest training workflows
 - `main`: Default branch with stable releases
-- `TRANSAID2`: [Brief description of this branch, e.g., "alternative architecture experiments"]
 
 To switch between branches:git checkout [branch-name]
 ## Customization
